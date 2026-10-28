@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -107,16 +106,6 @@ func emitUpJSON(w io.Writer, services []ServiceStatus) error {
 // more than ~10 concurrent starts can saturate CPU and cause timeouts.
 const maxConcurrentAgentStarts = 10
 
-// daemonStartupGrace is how long to wait after spawning the daemon process
-// before verifying it started. The daemon needs time to write its PID file.
-// On Windows, DETACHED_PROCESS startup is slower so we allow extra time.
-var daemonStartupGrace = func() time.Duration {
-	if runtime.GOOS == "windows" {
-		return 2 * time.Second
-	}
-	return 300 * time.Millisecond
-}()
-
 var upCmd = &cobra.Command{
 	Use:     "up",
 	GroupID: GroupServices,
@@ -197,7 +186,7 @@ func runUp(cmd *cobra.Command, args []string) error {
 	}
 
 	// Start daemon, deacon, mayor, and rig prefetch in parallel
-	var daemonErr error
+	var daemonErr, daemonWarn error
 	var daemonPID int
 	var deaconResult, mayorResult agentStartResult
 	var prefetchedRigs map[string]*rig.Rig
@@ -234,7 +223,9 @@ func runUp(cmd *cobra.Command, args []string) error {
 	// 1. Daemon (Go process)
 	go func() {
 		defer startupWg.Done()
-		if err := ensureDaemon(townRoot); err != nil {
+		if err := ensureDaemon(townRoot); errors.Is(err, errDaemonStillStarting) {
+			daemonWarn = err
+		} else if err != nil {
 			daemonErr = err
 		} else {
 			running, pid, _ := daemon.IsRunning(townRoot)
@@ -301,6 +292,8 @@ func runUp(cmd *cobra.Command, args []string) error {
 	if daemonErr != nil {
 		services = append(services, ServiceStatus{Name: "Daemon", Type: "daemon", OK: false, Detail: daemonErr.Error()})
 		allOK = false
+	} else if daemonWarn != nil {
+		services = append(services, ServiceStatus{Name: "Daemon", Type: "daemon", OK: true, Detail: daemonWarn.Error()})
 	} else if daemonPID > 0 {
 		services = append(services, ServiceStatus{Name: "Daemon", Type: "daemon", OK: true, Detail: fmt.Sprintf("PID %d", daemonPID)})
 	} else {
@@ -553,22 +546,93 @@ func ensureDaemon(townRoot string) error {
 		return err
 	}
 
-	// Wait for daemon to initialize
-	time.Sleep(daemonStartupGrace)
+	// Reap the child in the background so a crashed daemon is observable as
+	// "exited" rather than lingering as a zombie that still answers signal 0.
+	exited := make(chan struct{})
+	go func() {
+		_ = cmd.Wait()
+		close(exited)
+	}()
 
-	// Verify it started
-	running, _, err = daemon.IsRunning(townRoot)
+	state, _, err := waitForDaemonStart(constants.DaemonStartTimeout, daemonPollInterval,
+		func() (bool, int, error) { return daemon.IsRunning(townRoot) },
+		func() bool {
+			select {
+			case <-exited:
+				return true
+			default:
+				return false
+			}
+		},
+		time.Sleep)
+	return daemonStartResult(townRoot, cmd.Process.Pid, state, err)
+}
+
+// daemonPollInterval is how often startup polls for daemon readiness.
+const daemonPollInterval = 100 * time.Millisecond
+
+// errDaemonStillStarting is returned (wrapped) when the daemon process is alive
+// but has not yet acquired its lock within the startup timeout. It is a warning,
+// not a failure: daemon init (beads/dolt checks) can be slow on loaded hosts.
+var errDaemonStillStarting = errors.New("daemon still starting")
+
+type daemonWaitState int
+
+const (
+	daemonUp       daemonWaitState = iota // lock held, daemon running
+	daemonStarting                        // timeout elapsed, process still alive
+	daemonExited                          // process exited without becoming ready
+)
+
+// waitForDaemonStart polls probe until the daemon holds its lock (the readiness
+// signal: Daemon.Run takes daemon.lock before doing its pre-flight checks).
+// It returns early if exited reports the spawned process is gone. Time is
+// tracked by summing sleep calls so tests can inject a fake sleep.
+func waitForDaemonStart(timeout, interval time.Duration,
+	probe func() (bool, int, error), exited func() bool, sleep func(time.Duration),
+) (daemonWaitState, int, error) {
+	for elapsed := time.Duration(0); ; elapsed += interval {
+		running, pid, err := probe()
+		if err != nil {
+			return daemonExited, 0, err
+		}
+		if running {
+			return daemonUp, pid, nil
+		}
+		if exited() {
+			// Re-probe once: the process may have taken the lock and been replaced
+			// by a racing winner between our probe and the exit check.
+			if running, pid, err = probe(); err == nil && running {
+				return daemonUp, pid, nil
+			}
+			return daemonExited, 0, err
+		}
+		if elapsed >= timeout {
+			return daemonStarting, 0, nil
+		}
+		sleep(interval)
+	}
+}
+
+// daemonStartResult maps a wait outcome to the error returned by ensureDaemon.
+func daemonStartResult(townRoot string, pid int, state daemonWaitState, err error) error {
+	switch state {
+	case daemonUp:
+		return nil
+	case daemonStarting:
+		return fmt.Errorf("%w after %s (PID %d); check 'gt daemon logs'",
+			errDaemonStillStarting, constants.DaemonStartTimeout, pid)
+	}
 	if err != nil {
 		return err
 	}
-	if !running {
-		if msg := readDaemonStartupFailure(townRoot, cmd.Process.Pid); msg != "" {
-			return fmt.Errorf("daemon failed to start: %s", msg)
-		}
-		return fmt.Errorf("daemon failed to start (check logs with 'gt daemon logs')")
+	if msg := readDaemonStartupFailure(townRoot, pid); msg != "" {
+		return fmt.Errorf("daemon failed to start: %s", msg)
 	}
-
-	return nil
+	if tail := readDaemonLogTail(townRoot, 5); tail != "" {
+		return fmt.Errorf("daemon failed to start (process exited); last log lines:\n%s", tail)
+	}
+	return fmt.Errorf("daemon failed to start (check logs with 'gt daemon logs')")
 }
 
 // rigPrefetchResult holds the result of loading a single rig config.
