@@ -308,7 +308,8 @@ func getActiveTmuxSessions() []string {
 		args = append(args, "-L", sock)
 	}
 	args = append(args, "list-sessions", "-F", "#{session_name}:#{session_id}")
-	cmd := execCommand("tmux", args...)
+	prog, pre := tmux.Program()
+	cmd := execCommand(prog, append(pre, args...)...)
 	output, err := cmd.Output()
 	if err != nil {
 		return nil // tmux not running or not installed

@@ -43,6 +43,9 @@ func NewTmuxGlobalEnvCheckWithAccessor(accessor GlobalEnvAccessor) *TmuxGlobalEn
 
 // Run checks that GT_TOWN_ROOT is set correctly in the tmux global environment.
 func (c *TmuxGlobalEnvCheck) Run(ctx *CheckContext) *CheckResult {
+	if r := skipIfHerdr(c.Name()); r != nil {
+		return r
+	}
 	accessor := c.accessor
 	if accessor == nil {
 		accessor = tmux.NewTmux()

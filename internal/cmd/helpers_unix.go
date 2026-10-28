@@ -19,13 +19,8 @@ import (
 // control, and passes -u for UTF-8 support regardless of locale settings.
 // See: https://github.com/steveyegge/gastown/issues/1219
 func attachToTmuxSession(sessionID string) error {
-	tmuxPath, err := exec.LookPath("tmux")
-	if err != nil {
-		return fmt.Errorf("tmux not found: %w", err)
-	}
-
 	// Base args with UTF-8 and socket support
-	baseArgs := []string{"tmux", "-u"}
+	baseArgs := []string{"-u"}
 	if socket := tmux.GetDefaultSocket(); socket != "" {
 		baseArgs = append(baseArgs, "-L", socket)
 	}
@@ -40,7 +35,11 @@ func attachToTmuxSession(sessionID string) error {
 	}
 
 	// Replace the Go process with tmux for direct terminal control
-	return syscall.Exec(tmuxPath, args, os.Environ())
+	tmuxPath, argv, err := tmux.ExecArgv(args...)
+	if err != nil {
+		return fmt.Errorf("tmux not found: %w", err)
+	}
+	return syscall.Exec(tmuxPath, argv, os.Environ())
 }
 
 // execAgent execs the configured agent, replacing the current process.
