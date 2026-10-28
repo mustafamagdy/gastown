@@ -77,7 +77,7 @@ func getTmuxSessionPIDs() map[int]bool {
 	// Each Gas Town instance (and any personal tmux servers) gets its own socket.
 	socketDir := tmux.SocketDir()
 	entries, err := os.ReadDir(socketDir)
-	if err == nil {
+	if err == nil && !tmux.IsHerdr() { // herdr has no tmux socket files
 		for _, entry := range entries {
 			if entry.IsDir() {
 				continue
@@ -105,7 +105,7 @@ func getTmuxSessionPIDs() map[int]bool {
 // collectPanePIDs queries a single tmux socket for all pane PIDs and adds them
 // (plus their descendant processes) to the protection set.
 func collectPanePIDs(socketPath string, childMap map[int][]int, pids map[int]bool) {
-	out, err := exec.Command("tmux", "-S", socketPath, "list-panes", "-a", "-F", "#{pane_pid}").Output()
+	out, err := tmux.CommandWithArgs("-S", socketPath, "list-panes", "-a", "-F", "#{pane_pid}").Output()
 	if err != nil {
 		return
 	}

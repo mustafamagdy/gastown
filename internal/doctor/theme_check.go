@@ -29,6 +29,9 @@ func NewThemeCheck() *ThemeCheck {
 
 // Run checks if tmux sessions have themes applied correctly.
 func (c *ThemeCheck) Run(ctx *CheckContext) *CheckResult {
+	if r := skipIfHerdr(c.Name()); r != nil {
+		return r
+	}
 	t := tmux.NewTmux()
 
 	// List all sessions

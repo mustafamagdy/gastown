@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -524,12 +523,7 @@ func runAgents(cmd *cobra.Command, args []string) error {
 	}
 
 	// Execute tmux display-menu
-	tmuxPath, err := exec.LookPath("tmux")
-	if err != nil {
-		return fmt.Errorf("tmux not found: %w", err)
-	}
-
-	execCmd := exec.Command(tmuxPath, menuArgs...)
+	execCmd := tmux.CommandWithArgs(menuArgs...)
 	execCmd.Stdin = os.Stdin
 	execCmd.Stdout = os.Stdout
 	execCmd.Stderr = os.Stderr

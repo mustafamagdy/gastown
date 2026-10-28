@@ -97,6 +97,11 @@ var branchCheckExemptCommands = map[string]bool{
 
 // persistentPreRun runs before every command.
 func persistentPreRun(cmd *cobra.Command, args []string) error {
+	// herdr mux plumbing runs on hot paths from any cwd: skip everything.
+	if isMuxCommand(cmd) {
+		return nil
+	}
+
 	// Check if binary was built properly (via make build, not raw go build).
 	// Raw go build produces unsigned binaries that macOS may kill.
 	// Warning only - doesn't block execution.
@@ -318,7 +323,7 @@ func checkStaleBinaryWarning() {
 // Execute runs the root command and returns an exit code.
 // The caller (main) should call os.Exit with this code.
 func Execute() int {
-	if !isDoneInvocation(os.Args[1:]) {
+	if !isDoneInvocation(os.Args[1:]) && !isMuxInvocation(os.Args[1:]) {
 		ctx := context.Background()
 		provider, err := telemetry.Init(ctx, "gastown", Version)
 		if err != nil {

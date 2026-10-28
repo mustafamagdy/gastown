@@ -1374,7 +1374,7 @@ func setTmuxWorkContext(workRig, workBead, workMol string) {
 	if os.Getenv("TMUX") == "" {
 		return
 	}
-	out, err := exec.Command("tmux", "display-message", "-p", "#{session_name}").Output()
+	out, err := tmux.BuildCommand("display-message", "-p", "#{session_name}").Output()
 	if err != nil {
 		return
 	}
@@ -1384,9 +1384,9 @@ func setTmuxWorkContext(workRig, workBead, workMol string) {
 	}
 	setOrUnset := func(key, value string) {
 		if value != "" {
-			_ = exec.Command("tmux", "set-environment", "-t", session, key, value).Run()
+			_ = tmux.BuildCommand("set-environment", "-t", session, key, value).Run()
 		} else {
-			_ = exec.Command("tmux", "set-environment", "-u", "-t", session, key).Run()
+			_ = tmux.BuildCommand("set-environment", "-u", "-t", session, key).Run()
 		}
 	}
 	setOrUnset("GT_WORK_RIG", workRig)

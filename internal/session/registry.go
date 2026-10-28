@@ -132,6 +132,10 @@ func InitRegistry(townRoot string) error {
 	}
 	tmux.SetDefaultSocket(socket)
 
+	if err := initMultiplexer(townRoot); err != nil {
+		errs = append(errs, err)
+	}
+
 	r, err := BuildPrefixRegistryFromTown(townRoot)
 	if err != nil {
 		errs = append(errs, fmt.Errorf("prefix registry: %w", err))

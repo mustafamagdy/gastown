@@ -45,6 +45,9 @@ func NewSocketSplitBrainCheck() *SocketSplitBrainCheck {
 // Run checks for Gas Town sessions on the "default" socket that duplicate
 // sessions on the town socket.
 func (c *SocketSplitBrainCheck) Run(ctx *CheckContext) *CheckResult {
+	if r := skipIfHerdr(c.Name()); r != nil {
+		return r
+	}
 	townSocket := tmux.GetDefaultSocket()
 	if c.useSocketForTest {
 		townSocket = c.socketForTest

@@ -19,7 +19,8 @@ const (
 )
 
 func (t *Tmux) ensureNewSessionSocketSafe() error {
-	if t.socketName == "" {
+	// herdr has no tmux socket file to guard.
+	if t.socketName == "" || IsHerdr() {
 		return nil
 	}
 
