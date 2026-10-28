@@ -17,7 +17,52 @@ import (
 type session struct {
 	Name  string
 	WS    wsInfo
+	Tab   *tabInfo // set for Kind == KindTab (and worktree when known)
 	State *SessionState
+}
+
+// num is the numeric part of the tmux-style $id: unique per session. Tabs and
+// worktree sessions use workspaceNumber*1000+tabNumber; legacy sessions keep
+// the workspace number.
+func (s *session) num() int {
+	if s.State.TabID == "" {
+		return s.WS.Number
+	}
+	ws, tab := idNumber(s.State.WorkspaceID), idNumber(s.State.TabID[strings.IndexByte(s.State.TabID, ':')+1:])
+	if ws == 0 {
+		ws = s.WS.Number
+	}
+	return ws*1000 + tab
+}
+
+// idNumber parses the digits of ids like "w12" or "t3".
+func idNumber(id string) int {
+	n := 0
+	for _, c := range id {
+		if c >= '0' && c <= '9' {
+			n = n*10 + int(c-'0')
+		}
+	}
+	return n
+}
+
+// shortName is the tab / window name.
+func (s *session) shortName() string {
+	if s.State.Label != "" {
+		return s.State.Label
+	}
+	return s.Name
+}
+
+// attached reports whether a client is looking at the session.
+func (s *session) attached() bool {
+	if s.State.Kind == KindTab {
+		return s.Tab != nil && s.Tab.Focused && s.WS.Focused
+	}
+	if s.State.Kind == KindWorktree {
+		return s.WS.Focused && (s.Tab == nil || s.Tab.Focused)
+	}
+	return s.WS.Focused
 }
 
 // PaneID is the session's herdr pane id.
@@ -100,25 +145,101 @@ func (m *mux) trackedSessions() ([]session, error) {
 	if err != nil {
 		return nil, err
 	}
+	var tabs []tabInfo
+	tabsLoaded := false
+	loadTabs := func() error {
+		if tabsLoaded {
+			return nil
+		}
+		t, err := m.cl.listTabs(m.ctx, "")
+		if err != nil {
+			return err
+		}
+		tabs, tabsLoaded = t, true
+		return nil
+	}
+	wsByID := func(id string) *wsInfo {
+		for i := range wss {
+			if wss[i].ID == id {
+				return &wss[i]
+			}
+		}
+		return nil
+	}
+	// Every branch below prunes state only after a successful listing that
+	// lacks the owning tab/workspace; listing errors abort without pruning.
 	var out []session
 	for _, n := range names {
 		st, err := m.store.Load(n)
 		if err != nil {
 			continue
 		}
-		wid := workspaceOfPane(st.HerdrPaneID)
-		var found *wsInfo
-		for i := range wss {
-			if wss[i].Label == n && (wid == "" || wss[i].ID == wid) {
-				found = &wss[i]
-				break
+		switch st.Kind {
+		case KindTab:
+			if st.TabID == "" {
+				continue
+			}
+			if err := loadTabs(); err != nil {
+				return nil, err
+			}
+			var tab *tabInfo
+			for i := range tabs {
+				if tabs[i].ID == st.TabID {
+					tab = &tabs[i]
+					break
+				}
+			}
+			if tab == nil {
+				_ = m.store.Delete(n)
+				continue
+			}
+			ws := wsByID(tab.WorkspaceID)
+			if ws == nil {
+				ws = &wsInfo{ID: tab.WorkspaceID}
+			}
+			out = append(out, session{Name: n, WS: *ws, Tab: tab, State: st})
+		case KindWorktree:
+			wid := st.WorkspaceID
+			if wid == "" {
+				wid = workspaceOfPane(st.HerdrPaneID)
+			}
+			ws := wsByID(wid)
+			if ws == nil {
+				_ = m.store.Delete(n)
+				continue
+			}
+			out = append(out, session{Name: n, WS: *ws, State: st})
+		default:
+			wid := st.WorkspaceID
+			if wid == "" {
+				wid = workspaceOfPane(st.HerdrPaneID)
+			}
+			var found *wsInfo
+			for i := range wss {
+				if wss[i].Label == n && (wid == "" || wss[i].ID == wid) {
+					found = &wss[i]
+					break
+				}
+			}
+			if found == nil {
+				_ = m.store.Delete(n)
+				continue
+			}
+			out = append(out, session{Name: n, WS: *found, State: st})
+		}
+	}
+	// Worktree sessions: resolve the focused-ness of their root tab lazily.
+	for i := range out {
+		if out[i].State.Kind == KindWorktree && out[i].State.TabID != "" {
+			if err := loadTabs(); err != nil {
+				return nil, err
+			}
+			for j := range tabs {
+				if tabs[j].ID == out[i].State.TabID {
+					out[i].Tab = &tabs[j]
+				}
 			}
 		}
-		if found == nil {
-			_ = m.store.Delete(n)
-			continue
-		}
-		out = append(out, session{Name: n, WS: *found, State: st})
 	}
 	return out, nil
 }
@@ -142,7 +263,7 @@ func (m *mux) findSession(raw string) (*session, error) {
 	}
 	if strings.HasPrefix(t.Session, "$") {
 		for i := range all {
-			if fmt.Sprintf("$%d", all[i].WS.Number) == t.Session {
+			if fmt.Sprintf("$%d", all[i].num()) == t.Session {
 				return &all[i], nil
 			}
 		}
@@ -256,12 +377,14 @@ func (f *fmtCtx) lookup(name string) string {
 		return ""
 	}
 	switch name {
-	case "session_name", "window_name":
+	case "session_name":
 		return s.Name
+	case "window_name":
+		return s.shortName()
 	case "session_id":
-		return fmt.Sprintf("$%d", s.WS.Number)
+		return fmt.Sprintf("$%d", s.num())
 	case "window_id":
-		return fmt.Sprintf("@%d", s.WS.Number)
+		return fmt.Sprintf("@%d", s.num())
 	case "session_created":
 		return fmt.Sprint(s.State.Created)
 	case "session_activity", "window_activity":
@@ -269,7 +392,7 @@ func (f *fmtCtx) lookup(name string) string {
 	case "session_last_attached":
 		return "0"
 	case "session_attached":
-		if s.WS.Focused {
+		if s.attached() {
 			return "1"
 		}
 		return "0"

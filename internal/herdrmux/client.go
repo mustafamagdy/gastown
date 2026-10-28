@@ -272,7 +272,39 @@ func (c *Client) listWorkspaces(ctx context.Context) ([]wsInfo, error) {
 	return r.Workspaces, nil
 }
 
-func (c *Client) createWorkspace(ctx context.Context, label, cwd string, env map[string]string) (wsInfo, string, error) {
+// created is what workspace/tab/worktree creation reports.
+type created struct {
+	WS     wsInfo
+	TabID  string
+	PaneID string
+}
+
+type createResult struct {
+	Workspace wsInfo  `json:"workspace"`
+	Tab       tabInfo `json:"tab"`
+	RootPane  struct {
+		ID    string `json:"pane_id"`
+		TabID string `json:"tab_id"`
+		WSID  string `json:"workspace_id"`
+	} `json:"root_pane"`
+	AlreadyOpen bool `json:"already_open"`
+}
+
+func (r createResult) created() created {
+	c := created{WS: r.Workspace, TabID: r.Tab.ID, PaneID: r.RootPane.ID}
+	if c.TabID == "" {
+		c.TabID = r.RootPane.TabID
+	}
+	if c.WS.ID == "" {
+		c.WS.ID = r.RootPane.WSID
+		if c.WS.ID == "" {
+			c.WS.ID = r.Tab.WorkspaceID
+		}
+	}
+	return c
+}
+
+func (c *Client) createWorkspace(ctx context.Context, label, cwd string, env map[string]string) (created, error) {
 	args := []string{"workspace", "create", "--label", label, "--no-focus"}
 	if cwd != "" {
 		args = append(args, "--cwd", cwd)
@@ -280,16 +312,75 @@ func (c *Client) createWorkspace(ctx context.Context, label, cwd string, env map
 	for _, k := range sortedKeys(env) {
 		args = append(args, "--env", k+"="+env[k])
 	}
+	var r createResult
+	if err := c.call(ctx, &r, args...); err != nil {
+		return created{}, err
+	}
+	return r.created(), nil
+}
+
+type tabInfo struct {
+	ID          string `json:"tab_id"`
+	WorkspaceID string `json:"workspace_id"`
+	Label       string `json:"label"`
+	Number      int    `json:"number"`
+	Focused     bool   `json:"focused"`
+}
+
+// listTabs lists the tabs of one workspace, or of every workspace when ws is empty.
+func (c *Client) listTabs(ctx context.Context, ws string) ([]tabInfo, error) {
+	args := []string{"tab", "list"}
+	if ws != "" {
+		args = append(args, "--workspace", ws)
+	}
 	var r struct {
-		Workspace wsInfo `json:"workspace"`
-		RootPane  struct {
-			ID string `json:"pane_id"`
-		} `json:"root_pane"`
+		Tabs []tabInfo `json:"tabs"`
 	}
 	if err := c.call(ctx, &r, args...); err != nil {
-		return wsInfo{}, "", err
+		return nil, err
 	}
-	return r.Workspace, r.RootPane.ID, nil
+	return r.Tabs, nil
+}
+
+func (c *Client) createTab(ctx context.Context, ws, label, cwd string) (created, error) {
+	args := []string{"tab", "create", "--workspace", ws, "--label", label, "--no-focus"}
+	if cwd != "" {
+		args = append(args, "--cwd", cwd)
+	}
+	var r createResult
+	if err := c.call(ctx, &r, args...); err != nil {
+		return created{}, err
+	}
+	out := r.created()
+	if out.WS.ID == "" {
+		out.WS.ID = ws
+	}
+	return out, nil
+}
+
+// openWorktree opens an existing linked git worktree as its own workspace
+// nested under ws. It never creates or removes worktrees on disk.
+func (c *Client) openWorktree(ctx context.Context, ws, path, label string) (created, error) {
+	var r createResult
+	if err := c.call(ctx, &r, "worktree", "open", "--workspace", ws, "--path", path, "--label", label, "--no-focus"); err != nil {
+		return created{}, err
+	}
+	return r.created(), nil
+}
+
+func (c *Client) closeTab(ctx context.Context, id string) error {
+	_, err := c.sessionRaw(ctx, "tab", "close", id)
+	return err
+}
+
+func (c *Client) renameTab(ctx context.Context, id, label string) error {
+	_, err := c.sessionRaw(ctx, "tab", "rename", id, label)
+	return err
+}
+
+func (c *Client) focusTab(ctx context.Context, id string) error {
+	_, err := c.sessionRaw(ctx, "tab", "focus", id)
+	return err
 }
 
 func (c *Client) listPanes(ctx context.Context, ws string) ([]paneInfo, error) {

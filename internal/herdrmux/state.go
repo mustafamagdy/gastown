@@ -19,17 +19,25 @@ import (
 // SessionState is everything tmux would remember about a session that herdr
 // does not: environment, options, hooks, timestamps and pane process status.
 type SessionState struct {
-	Name          string            `json:"name"`
-	Created       int64             `json:"created"`  // unix seconds
-	Activity      int64             `json:"activity"` // unix seconds
-	Cwd           string            `json:"cwd,omitempty"`
-	Env           map[string]string `json:"env,omitempty"`
-	Options       map[string]string `json:"options,omitempty"`
-	Hooks         map[string]string `json:"hooks,omitempty"`
-	Command       string            `json:"command,omitempty"`       // shell command line the supervisor runs
-	HerdrPaneID   string            `json:"herdr_pane_id,omitempty"` // e.g. "w2:p1"
-	SupervisorPID int               `json:"supervisor_pid,omitempty"`
-	PanePID       int               `json:"pane_pid,omitempty"` // child process pid (tmux #{pane_pid})
+	Name        string            `json:"name"`
+	Created     int64             `json:"created"`  // unix seconds
+	Activity    int64             `json:"activity"` // unix seconds
+	Cwd         string            `json:"cwd,omitempty"`
+	Env         map[string]string `json:"env,omitempty"`
+	Options     map[string]string `json:"options,omitempty"`
+	Hooks       map[string]string `json:"hooks,omitempty"`
+	Command     string            `json:"command,omitempty"`       // shell command line the supervisor runs
+	HerdrPaneID string            `json:"herdr_pane_id,omitempty"` // e.g. "w2:p1"
+	// WorkspaceID / TabID / Kind / Label say where the session lives in
+	// herdr. Kind is KindTab (a tab in a group workspace), KindWorktree (the
+	// workspace of a linked worktree) or "" (legacy: a whole workspace
+	// labelled with the session name). Label is the short tab/workspace name.
+	WorkspaceID   string `json:"workspace_id,omitempty"`
+	TabID         string `json:"tab_id,omitempty"`
+	Kind          string `json:"kind,omitempty"`
+	Label         string `json:"label,omitempty"`
+	SupervisorPID int    `json:"supervisor_pid,omitempty"`
+	PanePID       int    `json:"pane_pid,omitempty"` // child process pid (tmux #{pane_pid})
 	// ScreenHash fingerprints the visible screen at the last activity query;
 	// a change marks the session active (herdr has no activity timestamp).
 	ScreenHash string `json:"screen_hash,omitempty"`
@@ -278,4 +286,50 @@ func HerdrSessionFor(sock string) string {
 		}
 	}
 	return sock
+}
+
+// --- groups --------------------------------------------------------------
+
+// groupRec tracks one group workspace ("hq" or a rig) created by us.
+type groupRec struct {
+	WorkspaceID string `json:"workspace_id"`
+	// FreeTab / FreePane are the workspace's initial shell tab while no
+	// session has claimed it yet; the first session placed there reuses it.
+	FreeTab  string `json:"free_tab,omitempty"`
+	FreePane string `json:"free_pane,omitempty"`
+}
+
+func (s *Store) groupsPath() string { return filepath.Join(s.Dir, "groups.json") }
+
+// UpdateGroups applies fn to the label -> group record map under an
+// exclusive lock held for the whole call, so concurrent new-sessions
+// serialise their group creation.
+func (s *Store) UpdateGroups(fn func(map[string]groupRec) error) error {
+	path := s.groupsPath()
+	unlock, err := s.lock(path)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	g := map[string]groupRec{}
+	if err := readJSON(path, &g); err != nil && !errors.Is(err, os.ErrNotExist) {
+		g = map[string]groupRec{} // unreadable record: start over, groups are re-found by id+label
+	}
+	if g == nil {
+		g = map[string]groupRec{}
+	}
+	if err := fn(g); err != nil {
+		return err
+	}
+	return writeJSON(path, g)
+}
+
+// LoadGroups reads the group records (empty if none).
+func (s *Store) LoadGroups() map[string]groupRec {
+	g := map[string]groupRec{}
+	_ = readJSON(s.groupsPath(), &g)
+	if g == nil {
+		g = map[string]groupRec{}
+	}
+	return g
 }

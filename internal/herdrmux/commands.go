@@ -150,12 +150,14 @@ func (m *mux) cmdNewSession(args []string) error {
 	}
 	env := parseEnvPairs(f.vals['e'])
 
-	ws, paneID, err := m.cl.createWorkspace(m.ctx, name, cwd, nil)
+	pl := Classify(name, cwd, env, command)
+	pd, err := m.place(pl, cwd)
 	if err != nil {
 		return err
 	}
+	paneID := pd.Pane
 	cleanup := func() {
-		_ = m.cl.closeWorkspace(m.ctx, ws.ID)
+		m.closePlaced(pd)
 		_ = m.store.Delete(name)
 	}
 	if err := m.store.Update(name, true, func(st *SessionState) error {
@@ -163,6 +165,7 @@ func (m *mux) cmdNewSession(args []string) error {
 		st.Env = env
 		st.Command = command
 		st.HerdrPaneID = paneID
+		st.WorkspaceID, st.TabID, st.Kind, st.Label = pd.WS.ID, pd.TabID, pd.Kind, pd.Label
 		st.PanePID, st.SupervisorPID = 0, 0
 		st.Dead, st.DeadStatus = false, 0
 		return nil
@@ -183,7 +186,7 @@ func (m *mux) cmdNewSession(args []string) error {
 		if format == "" {
 			format = "#{session_name}:"
 		}
-		s := &session{Name: name, WS: ws}
+		s := &session{Name: name, WS: pd.WS, Tab: &tabInfo{ID: pd.TabID, WorkspaceID: pd.WS.ID}}
 		s.State, _ = m.store.Load(name)
 		if s.State == nil {
 			s.State = &SessionState{}
@@ -213,7 +216,7 @@ func (m *mux) cmdKillSession(cmd string, args []string) error {
 	if err != nil {
 		return err
 	}
-	if err := m.cl.closeWorkspace(m.ctx, s.WS.ID); err != nil && !isNotFound(err) {
+	if err := m.closeSession(s); err != nil {
 		return err
 	}
 	return m.store.Delete(s.Name)
@@ -222,11 +225,12 @@ func (m *mux) cmdKillSession(cmd string, args []string) error {
 func (m *mux) cmdKillServer() error {
 	err := m.requireServer()
 	if m.cl.Shared {
-		// Not our server: close only the workspaces we created.
+		// Not our server: close only the tabs and workspaces we created.
 		if all, terr := m.trackedSessions(); terr == nil {
-			for _, s := range all {
-				_ = m.cl.closeWorkspace(m.ctx, s.WS.ID)
+			for i := range all {
+				_ = m.closeSession(&all[i])
 			}
+			m.dropFreeTabs()
 		}
 	} else {
 		_ = m.cl.StopSession(m.ctx)
@@ -718,23 +722,48 @@ func (m *mux) recreatePane(s *session) error {
 			have = true
 		}
 	}
+	var newWS, newTab, newKind, newLabel string
 	if !have {
 		st, _ := m.store.Load(s.Name)
 		cwd := ""
+		var env map[string]string
+		command := ""
 		if st != nil {
-			cwd = st.Cwd
+			cwd, env, command = st.Cwd, st.Env, st.Command
 		}
-		_, np, err := m.cl.createWorkspace(m.ctx, s.Name, cwd, nil)
-		if err != nil {
-			return err
-		}
-		paneID = np
-		if len(panes) == 0 {
-			_ = m.cl.closeWorkspace(m.ctx, s.WS.ID)
+		if s.State.Kind == "" {
+			// legacy one-workspace-per-session state
+			c, err := m.cl.createWorkspace(m.ctx, s.Name, cwd, nil)
+			if err != nil {
+				return err
+			}
+			paneID = c.PaneID
+			newWS = c.WS.ID
+			if len(panes) == 0 {
+				_ = m.cl.closeWorkspace(m.ctx, s.WS.ID)
+			}
+		} else {
+			pd, err := m.place(Classify(s.Name, cwd, env, command), cwd)
+			if err != nil {
+				return err
+			}
+			paneID = pd.Pane
+			newWS, newTab, newKind, newLabel = pd.WS.ID, pd.TabID, pd.Kind, pd.Label
+			if s.State.Kind == KindTab {
+				_ = m.cl.closeTab(m.ctx, s.State.TabID)
+			} else {
+				_ = m.cl.closeWorkspace(m.ctx, s.WS.ID)
+			}
 		}
 	}
 	if err := m.store.Update(s.Name, false, func(st *SessionState) error {
 		st.HerdrPaneID = paneID
+		if newWS != "" {
+			st.WorkspaceID, st.TabID = newWS, newTab
+			if newKind != "" {
+				st.Kind, st.Label = newKind, newLabel
+			}
+		}
 		st.PanePID, st.SupervisorPID = 0, 0
 		st.Dead = false
 		return nil
@@ -768,10 +797,34 @@ func (m *mux) cmdRenameSession(args []string) error {
 	} else if !errors.Is(err, ErrNoState) {
 		return err
 	}
-	if err := m.cl.renameWorkspace(m.ctx, s.WS.ID, newName); err != nil {
+	label := newName
+	if s.State.Kind != "" {
+		label = Classify(newName, s.State.Cwd, s.State.Env, s.State.Command).Label
+		if s.State.Kind == KindWorktree {
+			label = s.State.Label // the worktree workspace keeps its worker name
+		}
+	}
+	if s.State.Kind == KindTab {
+		if label != s.State.Label {
+			if err := m.cl.renameTab(m.ctx, s.State.TabID, label); err != nil {
+				return err
+			}
+		}
+	} else if label != s.WS.Label {
+		if err := m.cl.renameWorkspace(m.ctx, s.WS.ID, label); err != nil {
+			return err
+		}
+	}
+	if err := m.store.Rename(s.Name, newName); err != nil {
 		return err
 	}
-	return m.store.Rename(s.Name, newName)
+	if s.State.Kind != "" {
+		return m.store.Update(newName, false, func(st *SessionState) error {
+			st.Label = label
+			return nil
+		})
+	}
+	return nil
 }
 
 // attachExec replaces the process with an interactive herdr client. Tests
@@ -799,6 +852,11 @@ func (m *mux) cmdAttach(args []string, attach bool) error {
 	}
 	if err := m.cl.focusWorkspace(m.ctx, s.WS.ID); err != nil {
 		return err
+	}
+	if s.State.Kind == KindTab {
+		if err := m.cl.focusTab(m.ctx, s.State.TabID); err != nil {
+			return err
+		}
 	}
 	if !attach {
 		return nil

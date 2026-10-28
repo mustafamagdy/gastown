@@ -81,12 +81,46 @@ Global flags: `-u` (ignored), `-L name` (herdr session name), `-S path`
 | tmux | herdr |
 |------|-------|
 | server / socket `-L X` | herdr named session `X` (`herdr --session X …`), headless server auto-started on `new-session` |
-| session `name` | workspace whose **label** == `name` (unlabeled / foreign workspaces are ignored) |
-| window 0 / pane 0 | the workspace's root pane (gastown uses one pane per session) |
+| session `name` | a **tab** in a group workspace, or (polecats) a **linked-worktree workspace** — see "Placement" below. Legacy state (`kind` empty) is a whole workspace labelled `name` and keeps working. Unlabeled / foreign workspaces and tabs are ignored |
+| window 0 / pane 0 | the tab's (or workspace's) root pane (gastown uses one pane per session) |
 | `pane_id` `%…` | `%` + herdr pane id with `:` → `.` (e.g. `w2:p1` → `%w2.p1`) |
 
 Targets accepted for `-t`: `name`, `=name`, `name:`, `name:0`, `name:0.0`,
 `%paneid`, and empty (= current pane via `TMUX_PANE`/`HERDR_PANE_ID`).
+
+**Placement** (`placement.go`, `place.go`): `new-session` classifies the session
+from the `-e` env passed to it (`GT_ROLE`, `GT_RIG`, `GT_POLECAT`, `GT_CREW`,
+`GT_TOWN_ROOT`/`GT_ROOT`; `GT_ROLE` may be compound: `mayor`, `deacon/boot`,
+`<rig>/witness`, `<rig>/polecats/<name>`, `<rig>/crew/<name>`, `dog`), falling
+back to `GT_*=` assignments inside the command string, then to name heuristics
+(`hq-*` is town-level; `<prefix>-witness|refinery|crew-*` belongs to rig
+`<prefix>`).
+
+| session | herdr object |
+|---|---|
+| town-level (mayor, deacon, boot, dog, no rig) | tab in workspace `hq` (cwd = town root) |
+| witness / refinery / crew / unknown role with a rig | tab in the workspace labelled with the rig (cwd = `<town>/<rig>/.repo.git`, else `<town>/<rig>`, else the session cwd) |
+| polecat | `herdr worktree open --workspace <rig ws> --path <session cwd> --label <polecat> --no-focus`; any failure falls back to a tab in the rig workspace |
+
+Tab labels strip the town/rig prefix (`hq-dog-alpha` -> `dog-alpha`,
+`to-witness` -> `witness`); ambiguous names are kept whole. Group workspaces
+are tracked in `<state>/groups.json` (label -> workspace id) and reused only
+while a workspace with that id and label still exists; a vanished group is
+recreated. A new group's initial shell tab is claimed by the first session
+placed there (renamed, not left idle). The group lock serialises concurrent
+`new-session`s.
+
+Session state records `workspace_id`, `tab_id`, `kind` (`tab` | `worktree` |
+legacy empty) and `label`. State is pruned only when a successful herdr
+listing lacks the owning tab (tab kind, matched by tab id) or workspace
+(worktree/legacy); herdr errors never prune. `kill-session` runs `tab close`
+(tab) or `workspace close` (worktree/legacy) and never `worktree remove`.
+`rename-session` renames the tab (or workspace). `attach-session` /
+`switch-client` focus the workspace, then the tab. `session_id` is
+`$<ws number*1000+tab number>` for tabs/worktrees (legacy: `$<ws number>`);
+`session_attached` needs the session's tab and workspace both focused;
+`window_name` is the short label. Shared mode (`herdr_session`) `kill-server`
+closes only tracked tabs/workspaces (plus unclaimed initial group tabs).
 
 **Herdr client** (`client.go`): thin wrapper over the `herdr` CLI
 (`herdr --session <name> <group> <cmd> …`), parses JSON results / JSON errors
@@ -129,9 +163,9 @@ herdr lacks:
 | tmux command | behaviour |
 |---|---|
 | `-V` | version line |
-| `new-session -d -s N [-c dir] [-e K=V]… [-x/-y …] [cmd…]` | `duplicate session` if exists; else autostart server, `workspace create --label N --cwd dir --no-focus`, write state (env, cmd = cmd or `$SHELL`), `pane run <pane> "exec <gt> mux-supervise …"`, wait until state has `pane_pid` (≤5s) |
+| `new-session -d -s N [-c dir] [-e K=V]… [-x/-y …] [cmd…]` | `duplicate session` if exists; else autostart server, place per "Placement" (`tab create --cwd dir` / `worktree open` / group `workspace create`), write state (env, cmd = cmd or `$SHELL`), `pane run <pane> "exec <gt> mux-supervise …"`, wait until state has `pane_pid` (≤5s) |
 | `has-session -t T` | exit 0/1 (`can't find session: T`) |
-| `kill-session -t T` | `workspace close`, delete state |
+| `kill-session -t T` | `tab close` (tab) or `workspace close` (worktree/legacy), delete state |
 | `kill-server` | `herdr session stop <sock>` + remove state dir |
 | `list-sessions [-F fmt]` | one line per labeled workspace; no server → stderr `no server running on …`, exit 1 |
 | `list-panes [-a] [-s] [-t T] [-F fmt]` | one pane per session |
@@ -146,8 +180,8 @@ herdr lacks:
 | `show-options [-g] [-v] [-t T] [opt]` | from state |
 | `set-hook [-g] [-u] [-t T] name [cmd]` | store; only `pane-died` / `after-*respawn*` are acted on (by the supervisor) |
 | `respawn-pane [-k] [-t T] [-c dir] [-e K=V]… [cmd…]` | update spec in state, SIGUSR1 the supervisor; if supervisor gone, recreate pane |
-| `rename-session -t T new` | `workspace rename` + move state file |
-| `attach-session -t T` / `switch-client -t T` | `workspace focus <ws>` then (attach only) exec interactive `herdr --session S` with stdio inherited |
+| `rename-session -t T new` | `tab rename` (or `workspace rename`) + move state file |
+| `attach-session -t T` / `switch-client -t T` | `workspace focus <ws>`, `tab focus <tab>`, then (attach only) exec interactive `herdr --session S` with stdio inherited |
 | `select-window`, `resize-window`, `bind-key`, `unbind-key`, `display-menu`, `display-popup`, `source-file`, `refresh-client`, `reopen`… | exit 0 no-op |
 | `list-keys` | no output, exit 0 |
 

@@ -3,6 +3,7 @@
 package tmux
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math/rand"
@@ -94,8 +95,14 @@ func (h *herdrE2E) agentCmd(log string) string {
 // start creates a session running the fake agent and returns its log path.
 func (h *herdrE2E) start(name string, env map[string]string) string {
 	h.t.Helper()
+	return h.startIn(name, h.dir, env)
+}
+
+// startIn is start with an explicit working directory.
+func (h *herdrE2E) startIn(name, cwd string, env map[string]string) string {
+	h.t.Helper()
 	log := filepath.Join(h.dir, name+".log")
-	if err := h.tm.NewSessionWithCommandAndEnv(name, h.dir, h.agentCmd(log), env); err != nil {
+	if err := h.tm.NewSessionWithCommandAndEnv(name, cwd, h.agentCmd(log), env); err != nil {
 		h.t.Fatalf("NewSessionWithCommandAndEnv(%s): %v", name, err)
 	}
 	h.t.Cleanup(func() { _ = h.tm.KillSession(name) })
@@ -480,6 +487,157 @@ func TestHerdrE2E(t *testing.T) {
 		_ = tm.SendKeys("e2e-ren-new", "quit")
 		if !poll(8*time.Second, func() bool { return h.paneDead("e2e-ren-new") == "1" }) {
 			t.Errorf("pane death not recorded after rename; pane_dead=%q", h.paneDead("e2e-ren-new"))
+		}
+	})
+
+	t.Run("Layout", func(t *testing.T) {
+		h.t = t
+		town := t.TempDir()
+		git := func(dir string, args ...string) {
+			t.Helper()
+			cmd := exec.Command("git", append([]string{"-c", "user.email=e2e@example.com", "-c", "user.name=e2e"}, args...)...)
+			cmd.Dir = dir
+			if out, err := cmd.CombinedOutput(); err != nil {
+				t.Fatalf("git %v: %v\n%s", args, err, out)
+			}
+		}
+		seed := filepath.Join(h.dir, "seed")
+		if err := os.MkdirAll(seed, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		git(seed, "init", "-q", "-b", "main")
+		git(seed, "commit", "-q", "--allow-empty", "-m", "init")
+		if err := os.MkdirAll(filepath.Join(town, "demo"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		repo := filepath.Join(town, "demo", ".repo.git")
+		git(seed, "clone", "-q", "--bare", seed, repo)
+		pcDir := filepath.Join(town, "demo", "polecats-alpha")
+		git(repo, "worktree", "add", "-q", pcDir, "-b", "pc-alpha", "main")
+
+		base := map[string]string{"GT_TOWN_ROOT": town}
+		with := func(kv ...string) map[string]string {
+			m := map[string]string{}
+			for k, v := range base {
+				m[k] = v
+			}
+			for i := 0; i+1 < len(kv); i += 2 {
+				m[kv[i]] = kv[i+1]
+			}
+			return m
+		}
+		h.start("hq-mayor", with("GT_ROLE", "mayor"))
+		h.startIn("to-witness", h.dir, with("GT_ROLE", "demo/witness", "GT_RIG", "demo"))
+		h.startIn("to-alpha", pcDir, with("GT_ROLE", "demo/polecats/alpha", "GT_RIG", "demo", "GT_POLECAT", "alpha"))
+
+		type ws struct {
+			ID    string `json:"workspace_id"`
+			Label string `json:"label"`
+			WT    *struct {
+				Linked bool `json:"is_linked_worktree"`
+			} `json:"worktree"`
+		}
+		type tab struct {
+			ID    string `json:"tab_id"`
+			WS    string `json:"workspace_id"`
+			Label string `json:"label"`
+		}
+		listWS := func() map[string]ws {
+			out, err := herdrCmd("--session", h.sock, "workspace", "list").Output()
+			if err != nil {
+				t.Fatalf("workspace list: %v", err)
+			}
+			var r struct {
+				Result struct {
+					Workspaces []ws `json:"workspaces"`
+				} `json:"result"`
+			}
+			if err := json.Unmarshal(out, &r); err != nil {
+				t.Fatal(err)
+			}
+			m := map[string]ws{}
+			for _, w := range r.Result.Workspaces {
+				m[w.Label] = w
+			}
+			return m
+		}
+		tabLabels := func(wsID string) []string {
+			out, err := herdrCmd("--session", h.sock, "tab", "list", "--workspace", wsID).Output()
+			if err != nil {
+				return nil
+			}
+			var r struct {
+				Result struct {
+					Tabs []tab `json:"tabs"`
+				} `json:"result"`
+			}
+			if err := json.Unmarshal(out, &r); err != nil {
+				t.Fatal(err)
+			}
+			var l []string
+			for _, x := range r.Result.Tabs {
+				l = append(l, x.Label)
+			}
+			return l
+		}
+
+		w := listWS()
+		if len(w) != 3 {
+			t.Fatalf("workspaces = %v, want hq, demo and the polecat worktree", w)
+		}
+		if got := tabLabels(w["hq"].ID); len(got) != 1 || got[0] != "mayor" {
+			t.Errorf("hq tabs = %v, want [mayor]", got)
+		}
+		if got := tabLabels(w["demo"].ID); len(got) != 1 || got[0] != "witness" {
+			t.Errorf("demo tabs = %v, want [witness]", got)
+		}
+		if a, ok := w["alpha"]; !ok || a.WT == nil || !a.WT.Linked {
+			t.Errorf("polecat workspace = %+v, want a linked worktree workspace labelled alpha", a)
+		}
+		names, err := tm.ListSessions()
+		if err != nil || len(names) != 3 {
+			t.Errorf("ListSessions = %v, %v", names, err)
+		}
+
+		// A second town-level session becomes another tab in the same hq workspace.
+		h.start("hq-dog-alpha", with("GT_ROLE", "dog", "GT_DOG_NAME", "alpha"))
+		w = listWS()
+		if len(w) != 3 {
+			t.Errorf("workspaces after dog = %d, want 3", len(w))
+		}
+		if got := tabLabels(w["hq"].ID); len(got) != 2 || got[1] != "dog-alpha" {
+			t.Errorf("hq tabs = %v, want [mayor dog-alpha]", got)
+		}
+
+		// Killing a session closes only its own tab / workspace.
+		if err := tm.KillSession("hq-dog-alpha"); err != nil {
+			t.Fatal(err)
+		}
+		if got := tabLabels(listWS()["hq"].ID); len(got) != 1 || got[0] != "mayor" {
+			t.Errorf("hq tabs after dog kill = %v", got)
+		}
+		if err := tm.KillSession("to-alpha"); err != nil {
+			t.Fatal(err)
+		}
+		w = listWS()
+		if _, ok := w["alpha"]; ok || len(w) != 2 {
+			t.Errorf("workspaces after polecat kill = %v", w)
+		}
+		if _, err := os.Stat(pcDir); err != nil {
+			t.Errorf("git worktree must survive session kill: %v", err)
+		}
+		if err := tm.KillSession("to-witness"); err != nil {
+			t.Fatal(err)
+		}
+		w = listWS()
+		if _, ok := w["demo"]; ok || len(w) != 1 {
+			t.Errorf("workspaces after witness kill = %v", w)
+		}
+		if ok, _ := tm.HasSession("hq-mayor"); !ok {
+			t.Error("mayor must still exist")
+		}
+		if err := tm.KillSession("hq-mayor"); err != nil {
+			t.Fatal(err)
 		}
 	})
 

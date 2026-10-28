@@ -149,7 +149,7 @@ func TestSessionLifecycle(t *testing.T) {
 	}
 
 	out, _, _ := run("list-sessions", "-F", "#{session_name} #{session_id} #{session_windows} #{session_attached}")
-	if out != "hq-mayor $2 1 0\n" {
+	if out != "hq-mayor $2001 1 0\n" {
 		t.Errorf("list-sessions = %q", out)
 	}
 
@@ -170,7 +170,7 @@ func TestSessionLifecycle(t *testing.T) {
 		t.Errorf("list-panes -a = %q", out)
 	}
 	out, _, _ = run("list-windows", "-t", "hq-mayor", "-F", "#{window_index}:#{window_name}")
-	if out != "0:hq-mayor\n" {
+	if out != "0:mayor\n" {
 		t.Errorf("list-windows = %q", out)
 	}
 	// target by pane id

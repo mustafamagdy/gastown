@@ -132,7 +132,15 @@ To see the town's agents as ordinary workspaces in the herdr session you already
 {"type": "town-settings", "version": 1, "multiplexer": "herdr", "herdr_session": "default"}
 ```
 
-`GT_HERDR_SESSION` overrides it (empty forces a dedicated session). Gas Town only operates on workspaces it created, opens them without stealing focus, and in this mode `gt down --nuke` closes its own workspaces instead of stopping the herdr server. Restart the town (`gt down && gt up`) after changing it.
+`GT_HERDR_SESSION` overrides it (empty forces a dedicated session). Gas Town only operates on workspaces and tabs it created, opens them without stealing focus, and in this mode `gt down --nuke` closes its own tabs and workspaces instead of stopping the herdr server. Restart the town (`gt down && gt up`) after changing it.
+
+Sessions are laid out using herdr's hierarchy rather than one workspace per agent:
+
+- Town-level agents (mayor, deacon, boot, dogs) are tabs in one workspace labelled `hq` (rooted at the town root).
+- Each rig gets one workspace labelled with the rig name (rooted at `<town>/<rig>/.repo.git` when present), with its witness, refinery and crew as tabs (`witness`, `refinery`, `crew-max`).
+- Each polecat is a herdr linked-worktree workspace nested under its rig workspace. If herdr cannot open the polecat's directory as a worktree it becomes a tab in the rig workspace instead.
+
+Killing a session closes only its tab (or its polecat workspace); Gas Town never removes git worktrees through herdr.
 
 Not supported under herdr: tmux themes, the status line, and Gas Town's tmux key bindings (cycle, feed, agents menu). herdr provides its own UI and keybindings. tmux-only doctor checks report "skipped (herdr backend)".
 
