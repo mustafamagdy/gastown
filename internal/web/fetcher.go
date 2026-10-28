@@ -53,7 +53,8 @@ func (f *LiveConvoyFetcher) runTmuxCmd(args ...string) (*bytes.Buffer, error) {
 		fullArgs = append(fullArgs, "-L", f.tmuxSocket)
 	}
 	fullArgs = append(fullArgs, args...)
-	return fetcherRunCmd(f.tmuxCmdTimeout, "tmux", fullArgs...)
+	prog, pre := tmux.Program() // "tmux" or "gt mux-tmux" per backend
+	return fetcherRunCmd(f.tmuxCmdTimeout, prog, append(pre, fullArgs...)...)
 }
 
 var fetcherRunCmd = runCmd

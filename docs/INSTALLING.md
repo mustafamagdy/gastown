@@ -110,6 +110,24 @@ dolt version      # Should show 2.6.0 or higher
 tmux -V           # (Optional) Should show 3.0 or higher
 ```
 
+### Using herdr instead of tmux
+
+Gas Town can run every agent session under [herdr](https://herdr.dev) instead of tmux. tmux remains the default. Select herdr in `settings/config.json` at the town root:
+
+```json
+{"type": "town-settings", "version": 1, "multiplexer": "herdr"}
+```
+
+or with an environment variable, which takes precedence over the settings file:
+
+```bash
+export GT_MULTIPLEXER=herdr   # or "tmux"
+```
+
+herdr must be on `PATH` (set `GT_HERDR_BIN` to use a specific binary). Gas Town runs the town in its own named herdr session (the same name it would use as a tmux socket), so it never touches your default herdr session. Run `gt doctor` to verify; the `herdr` check reports the binary, version and town session state.
+
+Not supported under herdr: tmux themes, the status line, and Gas Town's tmux key bindings (cycle, feed, agents menu). herdr provides its own UI and keybindings. tmux-only doctor checks report "skipped (herdr backend)".
+
 ## Installing Gas Town
 
 ### Step 1: Install the Binaries

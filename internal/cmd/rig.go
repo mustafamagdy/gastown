@@ -972,12 +972,7 @@ func runRigMenu(cmd *cobra.Command, args []string) error {
 		menuArgs = append(menuArgs, "")
 	}
 
-	tmuxPath, err := exec.LookPath("tmux")
-	if err != nil {
-		return fmt.Errorf("tmux not found: %w", err)
-	}
-
-	execCmd := exec.Command(tmuxPath, menuArgs...)
+	execCmd := tmux.CommandWithArgs(menuArgs...)
 	execCmd.Stdin = os.Stdin
 	execCmd.Stdout = os.Stdout
 	execCmd.Stderr = os.Stderr

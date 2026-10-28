@@ -79,6 +79,10 @@ type TownSettings struct {
 	// Default: "gastown.local"
 	AgentEmailDomain string `json:"agent_email_domain,omitempty"`
 
+	// Multiplexer selects the terminal multiplexer backend: "tmux" (default)
+	// or "herdr". The GT_MULTIPLEXER environment variable overrides it.
+	Multiplexer string `json:"multiplexer,omitempty"`
+
 	// WebTimeouts configures command execution timeouts for the web dashboard.
 	WebTimeouts *WebTimeoutsConfig `json:"web_timeouts,omitempty"`
 

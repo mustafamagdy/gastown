@@ -16,11 +16,6 @@ import (
 // If already inside the multiplexer, uses switch-client instead of attach-session.
 // Uses os/exec.Command with stdio passthrough since syscall.Exec is Unix-only.
 func attachToTmuxSession(sessionID string) error {
-	tmuxPath, err := exec.LookPath("tmux")
-	if err != nil {
-		return fmt.Errorf("tmux not found: %w", err)
-	}
-
 	// Base args with UTF-8 and socket support
 	var args []string
 	args = append(args, "-u")
@@ -34,7 +29,11 @@ func attachToTmuxSession(sessionID string) error {
 		args = append(args, "attach-session", "-t", sessionID)
 	}
 
-	cmd := exec.Command(tmuxPath, args...)
+	tmuxPath, argv, err := tmux.ExecArgv(args...)
+	if err != nil {
+		return fmt.Errorf("tmux not found: %w", err)
+	}
+	cmd := exec.Command(tmuxPath, argv[1:]...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
