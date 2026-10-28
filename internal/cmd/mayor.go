@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"syscall"
@@ -418,7 +419,9 @@ func ensureMayorInfra(townRoot string) error {
 	daemonRunning, _, _ := daemon.IsRunning(townRoot)
 	if !daemonRunning {
 		style.PrintWarning("daemon is not running, starting...")
-		if err := ensureDaemon(townRoot); err != nil {
+		if err := ensureDaemon(townRoot); errors.Is(err, errDaemonStillStarting) {
+			style.PrintWarning("%v", err)
+		} else if err != nil {
 			style.PrintWarning("daemon start failed: %v", err)
 		} else {
 			fmt.Printf("  %s Daemon started\n", style.Bold.Render("✓"))

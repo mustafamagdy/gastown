@@ -53,6 +53,11 @@ const (
 	// Configurable via operational.nudge.retry_interval.
 	NudgeRetryInterval = 500 * time.Millisecond
 
+	// DaemonStartTimeout is how long gt up / gt daemon start wait for a freshly
+	// spawned daemon to acquire its lock. Daemon init can take several seconds
+	// on loaded hosts.
+	DaemonStartTimeout = 30 * time.Second
+
 	// BdCommandTimeout is the default timeout for bd (beads CLI) command execution.
 	// Configurable via operational.session.bd_command_timeout.
 	BdCommandTimeout = 30 * time.Second

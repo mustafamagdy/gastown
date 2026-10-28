@@ -11,6 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 	agentconfig "github.com/steveyegge/gastown/internal/config"
+	"github.com/steveyegge/gastown/internal/constants"
 	"github.com/steveyegge/gastown/internal/daemon"
 	"github.com/steveyegge/gastown/internal/style"
 	"github.com/steveyegge/gastown/internal/templates"
@@ -201,24 +202,30 @@ func runDaemonStart(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("starting daemon: %w", err)
 	}
 
-	// Poll for daemon to initialize and acquire the lock (up to 3s)
-	var started bool
-	for range 30 {
-		time.Sleep(100 * time.Millisecond)
-		running, pid, err = daemon.IsRunning(townRoot)
-		if err != nil {
-			return fmt.Errorf("checking daemon status: %w", err)
-		}
-		if running {
-			started = true
-			break
-		}
+	exited := make(chan struct{})
+	go func() {
+		_ = daemonCmd.Wait()
+		close(exited)
+	}()
+
+	// Poll for daemon to initialize and acquire the lock.
+	state, pid, err := waitForDaemonStart(constants.DaemonStartTimeout, daemonPollInterval,
+		func() (bool, int, error) { return daemon.IsRunning(townRoot) },
+		func() bool {
+			select {
+			case <-exited:
+				return true
+			default:
+				return false
+			}
+		},
+		time.Sleep)
+	if state == daemonStarting {
+		style.PrintWarning("%v", daemonStartResult(townRoot, daemonCmd.Process.Pid, state, nil))
+		return nil
 	}
-	if !started {
-		if msg := readDaemonStartupFailure(townRoot, daemonCmd.Process.Pid); msg != "" {
-			return fmt.Errorf("daemon failed to start: %s", msg)
-		}
-		return fmt.Errorf("daemon failed to start (check logs with 'gt daemon logs')")
+	if err := daemonStartResult(townRoot, daemonCmd.Process.Pid, state, err); err != nil {
+		return err
 	}
 
 	// Check if our spawned process is the one that won the race.
@@ -315,6 +322,24 @@ func getBinaryModTime() (time.Time, error) {
 		return time.Time{}, err
 	}
 	return info.ModTime(), nil
+}
+
+// readDaemonLogTail returns the last n non-empty lines of the daemon log.
+func readDaemonLogTail(townRoot string, n int) string {
+	data, err := os.ReadFile(filepath.Join(townRoot, "daemon", "daemon.log"))
+	if err != nil {
+		return ""
+	}
+	var lines []string
+	for _, l := range strings.Split(string(data), "\n") {
+		if strings.TrimSpace(l) != "" {
+			lines = append(lines, l)
+		}
+	}
+	if len(lines) > n {
+		lines = lines[len(lines)-n:]
+	}
+	return strings.Join(lines, "\n")
 }
 
 func readDaemonStartupFailure(townRoot string, pid int) string {
