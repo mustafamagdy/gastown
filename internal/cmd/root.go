@@ -194,9 +194,12 @@ func isRoleCommand(cmd *cobra.Command) bool {
 	return false
 }
 
+// isDoneCommand returns true only for the top-level `gt done` tree. Nested
+// commands that happen to be named "done" (gt dog done, gt mol step done,
+// gt wl done) are not polecat completions and must not hit the polecat guard.
 func isDoneCommand(cmd *cobra.Command) bool {
 	for c := cmd; c != nil; c = c.Parent() {
-		if c.Name() == "done" {
+		if c.Name() == "done" && (!c.HasParent() || !c.Parent().HasParent()) {
 			return true
 		}
 	}

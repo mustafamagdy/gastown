@@ -296,6 +296,35 @@ func TestIsDoneCommand(t *testing.T) {
 	if isDoneCommand(root) {
 		t.Fatal("root command should not be detected as done")
 	}
+
+	dog := &cobra.Command{Use: "dog"}
+	dogDone := &cobra.Command{Use: "done [name]"}
+	dog.AddCommand(dogDone)
+	root.AddCommand(dog)
+	if isDoneCommand(dogDone) {
+		t.Fatal("gt dog done should not be detected as gt done")
+	}
+
+	mol := &cobra.Command{Use: "mol"}
+	step := &cobra.Command{Use: "step"}
+	stepDone := &cobra.Command{Use: "done <step-id>"}
+	step.AddCommand(stepDone)
+	mol.AddCommand(step)
+	root.AddCommand(mol)
+	if isDoneCommand(stepDone) {
+		t.Fatal("gt mol step done should not be detected as gt done")
+	}
+}
+
+func TestIsDoneInvocationIgnoresNestedDone(t *testing.T) {
+	if !isDoneInvocation([]string{"done"}) {
+		t.Fatal("gt done should be a done invocation")
+	}
+	for _, args := range [][]string{{"dog", "done"}, {"dog", "done", "alpha"}, {"mol", "step", "done", "x"}} {
+		if isDoneInvocation(args) {
+			t.Fatalf("%v should not be a done invocation", args)
+		}
+	}
 }
 
 func TestPersistentPreRunDoneRejectsBeforeRegistryFallback(t *testing.T) {
