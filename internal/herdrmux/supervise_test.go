@@ -120,10 +120,10 @@ func TestSuperviseChildEnvAndExit(t *testing.T) {
 
 func TestSupervisePaneDiedHookSessionOverridesGlobal(t *testing.T) {
 	store, out := superviseFixture(t, `exit 5`, func(st *SessionState) {
-		st.Hooks = map[string]string{"pane-died": `echo session-hook > hook.txt`}
+		st.Hooks = map[string]string{"pane-died": `run-shell "echo session-hook > hook.txt"`}
 	})
 	_ = store.UpdateGlobal(func(g *GlobalState) error {
-		g.Hooks = map[string]string{"pane-died": `echo global-hook > hook.txt`}
+		g.Hooks = map[string]string{"pane-died": `run-shell "echo global-hook > hook.txt"`}
 		return nil
 	})
 	if code := waitExit(t, runSupervise(context.Background())); code != 5 {
@@ -137,12 +137,12 @@ func TestSupervisePaneDiedHookSessionOverridesGlobal(t *testing.T) {
 func TestSuperviseGlobalHookAndRemainOnExit(t *testing.T) {
 	store, out := superviseFixture(t, `exit 4`, nil)
 	_ = store.UpdateGlobal(func(g *GlobalState) error {
-		g.Hooks = map[string]string{"pane-died": `echo "$TMUX_PANE" > hook.txt`}
+		g.Hooks = map[string]string{"pane-died": `run-shell "echo status=#{pane_dead_status} > hook.txt"`}
 		g.Options = map[string]string{"remain-on-exit": "on"}
 		return nil
 	})
 	ch := runSupervise(context.Background())
-	waitFor(t, "hook", func() bool { return readFile(filepath.Join(out, "hook.txt")) == "%w2.p1" })
+	waitFor(t, "hook", func() bool { return readFile(filepath.Join(out, "hook.txt")) == "status=4" })
 	waitFor(t, "dead state", func() bool {
 		st, err := store.Load("sess")
 		return err == nil && st.Dead && st.DeadStatus == 4
@@ -175,7 +175,7 @@ func TestSuperviseRespawnKill(t *testing.T) {
 	if err := store.Update("sess", false, func(st *SessionState) error {
 		st.Command = `echo "$GEN" > second.txt; exec sleep 60`
 		st.Env = map[string]string{"GEN": "two"}
-		st.Hooks = map[string]string{"after-respawn-pane": `echo hooked > after.txt`}
+		st.Hooks = map[string]string{"after-respawn-pane": `run-shell "echo hooked > after.txt"`}
 		st.RespawnKill = true
 		st.RespawnSeq++
 		return nil

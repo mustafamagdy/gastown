@@ -55,7 +55,7 @@ func TestEnsureShim(t *testing.T) {
 		t.Fatal(err)
 	}
 	data, _ = os.ReadFile(path)
-	if !strings.Contains(string(data), "'/other/gt' mux-tmux") {
+	if !strings.Contains(string(data), "exec /other/gt mux-tmux") {
 		t.Errorf("shim not updated:\n%s", data)
 	}
 	entries, _ := os.ReadDir(dir)

@@ -1,3 +1,5 @@
+//go:build !windows
+
 package herdrmux
 
 import (
@@ -67,6 +69,8 @@ func (m *mux) dispatch(name string, args []string) error {
 		return m.cmdAttach(args, true)
 	case "switch-client":
 		return m.cmdAttach(args, false)
+	case "run-shell":
+		return m.cmdRunShell(args)
 	}
 	// clear-history, select-window, resize-window, bind-key, unbind-key,
 	// display-menu, display-popup, source-file, refresh-client, list-keys,

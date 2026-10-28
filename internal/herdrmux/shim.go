@@ -13,10 +13,6 @@ func shimScript(gtPath string) string {
 	return fmt.Sprintf("#!/bin/sh\n[ -n \"$GT_REAL_TMUX\" ] && exec \"$GT_REAL_TMUX\" \"$@\"\nexec %s mux-tmux \"$@\"\n", shellQuote(gtPath))
 }
 
-func shellQuote(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
-}
-
 // shimGtPath returns the absolute path of the gt binary: $GT_BIN if set,
 // else the running executable with symlinks resolved.
 func shimGtPath() (string, error) {
@@ -71,4 +67,23 @@ func EnsureShim() (string, error) {
 		return "", err
 	}
 	return dir, nil
+}
+
+// shellQuote quotes s for a POSIX shell if needed.
+func shellQuote(s string) string {
+	if s == "" {
+		return "''"
+	}
+	safe := true
+	for _, r := range s {
+		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' ||
+			strings.ContainsRune("_@%+=:,./-", r)) {
+			safe = false
+			break
+		}
+	}
+	if safe {
+		return s
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }

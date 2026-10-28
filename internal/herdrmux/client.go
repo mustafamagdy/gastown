@@ -1,3 +1,5 @@
+//go:build !windows
+
 package herdrmux
 
 import (
@@ -45,6 +47,7 @@ type Client struct {
 
 // newClientFunc builds the Client for a socket name. Tests replace it.
 var newClientFunc = func(sock string) *Client {
+	sock = herdrSessionName(sock)
 	return &Client{Sock: sock, Bin: herdrBin(), store: NewStore(sock), exec: realExec}
 }
 

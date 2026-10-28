@@ -4,6 +4,7 @@ package herdrmux
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -140,7 +141,7 @@ func Supervise(ctx context.Context, sock, session string) int {
 			s.setPgid(0)
 			s.reclaimForeground()
 			s.recordDeath(status)
-			cur, err := s.store.Load(session)
+			cur, err := s.load()
 			if err != nil {
 				return status
 			}
@@ -152,7 +153,7 @@ func Supervise(ctx context.Context, sock, session string) int {
 			return status
 
 		case <-usr1:
-			cur, err := s.store.Load(session)
+			cur, err := s.load()
 			if err != nil || cur.RespawnSeq == lastSeq {
 				continue
 			}
@@ -276,6 +277,7 @@ func (s *supervisor) setPgid(pgid int) {
 }
 
 func (s *supervisor) recordDeath(status int) {
+	_, _ = s.load() // follow a rename before writing
 	_ = s.store.Update(s.session, false, func(st *SessionState) error {
 		st.Dead = true
 		st.DeadStatus = status
@@ -305,18 +307,35 @@ func (s *supervisor) runHook(ctx context.Context, st *SessionState, name string)
 	if strings.TrimSpace(hook) == "" {
 		return
 	}
+	// Hooks are tmux command lines (e.g. `run-shell "gt log crash ...
+	// #{pane_dead_status}"`), so they go through the emulator.
 	hctx, cancel := context.WithTimeout(ctx, hookTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(hctx, "/bin/sh", "-c", hook)
-	cmd.Dir = st.Cwd
-	cmd.Env = s.buildEnv(st)
-	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
-	cmd.WaitDelay = time.Second
-	if err := cmd.Run(); err != nil && hctx.Err() == nil {
+	if err := RunHook(hctx, s.sock, s.session, hook, os.Stdout, os.Stderr); err != nil && hctx.Err() == nil {
 		fmt.Fprintf(os.Stderr, "mux-supervise: hook %s: %v\n", name, err)
 	}
+}
+
+// load reads this supervisor's session state. If the session was renamed
+// (rename-session moves the state file), it finds the state by its
+// supervisor pid and follows the new name.
+func (s *supervisor) load() (*SessionState, error) {
+	st, err := s.store.Load(s.session)
+	if !errors.Is(err, ErrNoState) {
+		return st, err
+	}
+	names, lerr := s.store.List()
+	if lerr != nil {
+		return nil, err
+	}
+	pid := os.Getpid()
+	for _, n := range names {
+		if cand, cerr := s.store.Load(n); cerr == nil && cand.SupervisorPID == pid {
+			s.session = n
+			return cand, nil
+		}
+	}
+	return nil, err
 }
 
 // killChild terminates the child's process group: SIGTERM, then SIGKILL after

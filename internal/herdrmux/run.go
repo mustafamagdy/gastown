@@ -1,3 +1,5 @@
+//go:build !windows
+
 // Package herdrmux emulates the subset of the tmux CLI that Gas Town uses,
 // carrying each command out against a herdr server. See
 // docs/design/herdr-backend.md.
@@ -67,9 +69,7 @@ loop:
 	if sock == "" {
 		sock = sockFromTMUXEnv(os.Getenv("TMUX"))
 	}
-	if sock == "" {
-		sock = "default"
-	}
+	sock = herdrSessionName(sock)
 	m := &mux{ctx: ctx, stdin: stdin, out: stdout, errw: stderr, sock: sock}
 	m.cl = newClientFunc(sock)
 	m.store = m.cl.store
@@ -94,6 +94,18 @@ loop:
 		return 1
 	}
 	return 0
+}
+
+// defaultSock is the herdr session used when no socket is given. It must never
+// be herdr's own "default" session, which belongs to the user.
+const defaultSock = "gt-default"
+
+// herdrSessionName maps a tmux socket name to the herdr session that backs it.
+func herdrSessionName(sock string) string {
+	if sock == "" || sock == "default" {
+		return defaultSock
+	}
+	return sock
 }
 
 // sockFromTMUXEnv extracts the socket name from TMUX=/herdr/<sock>,pid,0.
@@ -188,25 +200,6 @@ func sortedKeys[V any](m map[string]V) []string {
 	}
 	sort.Strings(keys)
 	return keys
-}
-
-// shellQuote quotes s for a POSIX shell if needed.
-func shellQuote(s string) string {
-	if s == "" {
-		return "''"
-	}
-	safe := true
-	for _, r := range s {
-		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' ||
-			strings.ContainsRune("_@%+=:,./-", r)) {
-			safe = false
-			break
-		}
-	}
-	if safe {
-		return s
-	}
-	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 // joinCommand joins tmux command argv into one shell command line: a single
