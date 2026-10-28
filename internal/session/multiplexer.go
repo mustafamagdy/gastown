@@ -50,6 +50,9 @@ func initMultiplexer(townRoot string) error {
 	if b != tmux.BackendHerdr {
 		return err
 	}
+	if mapErr := herdrmux.SetHerdrSession(tmux.GetDefaultSocket(), resolveHerdrSession(townRoot)); mapErr != nil {
+		err = joinErr(err, fmt.Errorf("herdr session mapping: %w", mapErr))
+	}
 	dir, shimErr := herdrmux.EnsureShim()
 	if shimErr != nil {
 		return fmt.Errorf("herdr tmux shim: %w", joinErr(err, shimErr))
@@ -57,6 +60,28 @@ func initMultiplexer(townRoot string) error {
 	prependPath(dir)
 	return err
 }
+
+// resolveHerdrSession returns the herdr session the town should live in:
+// GT_HERDR_SESSION env > town settings "herdr_session" > "" (dedicated).
+func resolveHerdrSession(townRoot string) string {
+	if v, ok := os.LookupEnv(EnvHerdrSession); ok {
+		return strings.TrimSpace(v)
+	}
+	data, err := os.ReadFile(config.TownSettingsPath(townRoot)) //nolint:gosec // G304: internal path
+	if err != nil {
+		return ""
+	}
+	var s struct {
+		HerdrSession string `json:"herdr_session"`
+	}
+	if json.Unmarshal(data, &s) != nil {
+		return ""
+	}
+	return strings.TrimSpace(s.HerdrSession)
+}
+
+// EnvHerdrSession overrides the town setting herdr_session.
+const EnvHerdrSession = "GT_HERDR_SESSION"
 
 func joinErr(a, b error) error {
 	if a == nil {

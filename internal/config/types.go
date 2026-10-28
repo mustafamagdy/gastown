@@ -83,6 +83,13 @@ type TownSettings struct {
 	// or "herdr". The GT_MULTIPLEXER environment variable overrides it.
 	Multiplexer string `json:"multiplexer,omitempty"`
 
+	// HerdrSession names the herdr session the town's sessions run in when
+	// Multiplexer is "herdr". Empty (default) gives the town its own
+	// dedicated herdr session named after its tmux socket; "default" puts
+	// the town's workspaces in the user's own herdr session, next to theirs.
+	// The GT_HERDR_SESSION environment variable overrides it.
+	HerdrSession string `json:"herdr_session,omitempty"`
+
 	// WebTimeouts configures command execution timeouts for the web dashboard.
 	WebTimeouts *WebTimeoutsConfig `json:"web_timeouts,omitempty"`
 

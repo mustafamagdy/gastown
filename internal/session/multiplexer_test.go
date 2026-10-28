@@ -62,3 +62,23 @@ func TestPrependPathIdempotent(t *testing.T) {
 		t.Errorf("PATH = %q", got)
 	}
 }
+
+func TestResolveHerdrSession(t *testing.T) {
+	root := t.TempDir()
+	os.Unsetenv(EnvHerdrSession)
+	if got := resolveHerdrSession(root); got != "" {
+		t.Errorf("missing settings = %q, want dedicated", got)
+	}
+	writeSettings(t, root, `{"multiplexer":"herdr","herdr_session":" default "}`)
+	if got := resolveHerdrSession(root); got != "default" {
+		t.Errorf("settings = %q, want default", got)
+	}
+	t.Setenv(EnvHerdrSession, "gt-other")
+	if got := resolveHerdrSession(root); got != "gt-other" {
+		t.Errorf("env override = %q", got)
+	}
+	t.Setenv(EnvHerdrSession, "")
+	if got := resolveHerdrSession(root); got != "" {
+		t.Errorf("empty env must force dedicated, got %q", got)
+	}
+}

@@ -237,3 +237,45 @@ func (s *Store) UpdateGlobal(fn func(*GlobalState) error) error {
 
 // RemoveAll deletes all state for this socket (kill-server).
 func (s *Store) RemoveAll() error { return os.RemoveAll(s.Dir) }
+
+// sessionMapFile records which herdr session a socket's sessions live in when
+// it is not the socket's own dedicated herdr session (town setting
+// "herdr_session").
+const sessionMapFile = "herdr-session"
+
+// SetHerdrSession records that sessions on the given tmux socket live in the
+// named herdr session. An empty name removes the mapping, so the socket uses
+// its own dedicated herdr session.
+func SetHerdrSession(sock, herdrSession string) error {
+	path := filepath.Join(NewStore(sock).Dir, sessionMapFile)
+	herdrSession = strings.TrimSpace(herdrSession)
+	if herdrSession == "" || herdrSession == sock {
+		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		return nil
+	}
+	if cur, err := os.ReadFile(path); err == nil && string(cur) == herdrSession {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	tmp := fmt.Sprintf("%s.tmp.%d", path, os.Getpid())
+	if err := os.WriteFile(tmp, []byte(herdrSession), 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
+}
+
+// HerdrSessionFor returns the herdr session that backs a tmux socket: the
+// mapping set by SetHerdrSession, else the socket's own name.
+func HerdrSessionFor(sock string) string {
+	data, err := os.ReadFile(filepath.Join(NewStore(sock).Dir, sessionMapFile))
+	if err == nil {
+		if name := strings.TrimSpace(string(data)); name != "" {
+			return name
+		}
+	}
+	return sock
+}

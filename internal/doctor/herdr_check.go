@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/steveyegge/gastown/internal/herdrmux"
 	"github.com/steveyegge/gastown/internal/tmux"
 )
 
@@ -113,7 +114,7 @@ func (c *HerdrCheck) Run(ctx *CheckContext) *CheckResult {
 			Details: []string{version, err.Error()},
 		}
 	}
-	sock := tmux.GetDefaultSocket()
+	sock := herdrmux.HerdrSessionFor(tmux.GetDefaultSocket())
 	running, found, perr := townSessionRunning(listOut, sock)
 	if perr != nil {
 		return &CheckResult{

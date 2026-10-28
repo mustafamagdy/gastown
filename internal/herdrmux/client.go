@@ -37,10 +37,14 @@ func (e *HerdrError) Error() string {
 // session. It always passes --session and scrubs HERDR_* from the child
 // environment so a call can never reach the user's own herdr session.
 type Client struct {
-	Sock  string // herdr session name
-	Bin   string // herdr binary
-	store *Store
-	exec  execFunc
+	Sock string // herdr session name
+	// Shared is true when the herdr session is not dedicated to this socket
+	// (town setting herdr_session, e.g. the user's own "default" session):
+	// the server must never be stopped, only our workspaces closed.
+	Shared bool
+	Bin    string // herdr binary
+	store  *Store
+	exec   execFunc
 	// spawn starts the detached headless server; nil means the real one.
 	spawn func(ctx context.Context) error
 }
@@ -48,7 +52,8 @@ type Client struct {
 // newClientFunc builds the Client for a socket name. Tests replace it.
 var newClientFunc = func(sock string) *Client {
 	sock = herdrSessionName(sock)
-	return &Client{Sock: sock, Bin: herdrBin(), store: NewStore(sock), exec: realExec}
+	target := HerdrSessionFor(sock)
+	return &Client{Sock: target, Shared: target != sock, Bin: herdrBin(), store: NewStore(sock), exec: realExec}
 }
 
 func herdrBin() string {

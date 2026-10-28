@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -220,7 +221,16 @@ func (m *mux) cmdKillSession(cmd string, args []string) error {
 
 func (m *mux) cmdKillServer() error {
 	err := m.requireServer()
-	_ = m.cl.StopSession(m.ctx)
+	if m.cl.Shared {
+		// Not our server: close only the workspaces we created.
+		if all, terr := m.trackedSessions(); terr == nil {
+			for _, s := range all {
+				_ = m.cl.closeWorkspace(m.ctx, s.WS.ID)
+			}
+		}
+	} else {
+		_ = m.cl.StopSession(m.ctx)
+	}
 	_ = m.store.RemoveAll()
 	return err
 }
@@ -793,10 +803,24 @@ func (m *mux) cmdAttach(args []string, attach bool) error {
 	if !attach {
 		return nil
 	}
+	if m.insideTargetSession() {
+		return nil // focusing is enough; exec'ing herdr here would nest it
+	}
 	if in, ok := m.stdin.(*os.File); ok {
 		if fi, err := in.Stat(); err == nil && fi.Mode()&os.ModeCharDevice != 0 {
-			return attachExec(m.cl.Bin, m.sock)
+			return attachExec(m.cl.Bin, m.cl.Sock)
 		}
 	}
 	return nil
+}
+
+// insideTargetSession reports whether the caller runs in a pane of the herdr
+// session the town lives in.
+func (m *mux) insideTargetSession() bool {
+	sockPath := os.Getenv("HERDR_SOCKET_PATH")
+	if sockPath == "" {
+		return false
+	}
+	_, path, err := m.cl.SessionStatus(m.ctx)
+	return err == nil && path != "" && filepath.Clean(path) == filepath.Clean(sockPath)
 }

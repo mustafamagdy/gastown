@@ -26,6 +26,7 @@ type fakeHerdr struct {
 	procs     map[string][]procInfo
 	store     *Store
 	supPID    int // SupervisorPID the fake "supervisor" records
+	shared    bool // client reports a shared (non-dedicated) herdr session
 }
 
 type fakeWS struct {
@@ -53,7 +54,7 @@ func newFake(t *testing.T, sock string) (*fakeHerdr, func(args ...string) (strin
 	})
 	newClientFunc = func(s string) *Client {
 		f.store = NewStore(s)
-		return &Client{Sock: s, Bin: "herdr", store: f.store, exec: f.exec,
+		return &Client{Sock: s, Shared: f.shared, Bin: "herdr", store: f.store, exec: f.exec,
 			spawn: func(context.Context) error { f.running = true; return nil }}
 	}
 	run := func(args ...string) (string, string, int) {

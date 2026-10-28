@@ -126,6 +126,14 @@ export GT_MULTIPLEXER=herdr   # or "tmux"
 
 herdr must be on `PATH` (set `GT_HERDR_BIN` to use a specific binary). Gas Town runs the town in its own named herdr session (the same name it would use as a tmux socket), so it never touches your default herdr session. Run `gt doctor` to verify; the `herdr` check reports the binary, version and town session state.
 
+To see the town's agents as ordinary workspaces in the herdr session you already work in (instead of attaching to a separate one, which would nest herdr), set `herdr_session`:
+
+```json
+{"type": "town-settings", "version": 1, "multiplexer": "herdr", "herdr_session": "default"}
+```
+
+`GT_HERDR_SESSION` overrides it (empty forces a dedicated session). Gas Town only operates on workspaces it created, opens them without stealing focus, and in this mode `gt down --nuke` closes its own workspaces instead of stopping the herdr server. Restart the town (`gt down && gt up`) after changing it.
+
 Not supported under herdr: tmux themes, the status line, and Gas Town's tmux key bindings (cycle, feed, agents menu). herdr provides its own UI and keybindings. tmux-only doctor checks report "skipped (herdr backend)".
 
 ## Installing Gas Town
