@@ -28,14 +28,22 @@ func (m *mux) place(pl Placement, cwd string) (placed, error) {
 		var group *wsInfo
 		if tracked {
 			for i := range wss {
-				if wss[i].ID == rec.WorkspaceID && wss[i].Label == pl.Group {
+				if wss[i].ID == rec.WorkspaceID && groupLabelMatches(wss[i].Label, pl.Group) {
 					group = &wss[i]
 					break
 				}
 			}
 		}
+		groupLabel := GroupLabel(pl.Group)
+		tabLabel := DisplayLabel(pl.Role, pl.Label)
+		if group != nil && group.Label != groupLabel {
+			// Legacy (or emoji-toggled) label: adopt the current one.
+			if err := m.cl.renameWorkspace(m.ctx, group.ID, groupLabel); err == nil {
+				group.Label = groupLabel
+			}
+		}
 		if group == nil {
-			c, err := m.cl.createWorkspace(m.ctx, pl.Group, pl.GroupCwd, nil)
+			c, err := m.cl.createWorkspace(m.ctx, groupLabel, pl.GroupCwd, nil)
 			if err != nil {
 				return err
 			}
@@ -48,7 +56,7 @@ func (m *mux) place(pl Placement, cwd string) (placed, error) {
 		if pl.Kind == KindWorktree {
 			// Any failure (not a worktree of this repo, linked_worktree_source,
 			// …) falls back to a plain tab.
-			if c, err := m.cl.openWorktree(m.ctx, group.ID, cwd, pl.Label); err == nil && c.PaneID != "" && c.WS.ID != "" {
+			if c, err := m.cl.openWorktree(m.ctx, group.ID, cwd, tabLabel); err == nil && c.PaneID != "" && c.WS.ID != "" {
 				out = placed{WS: c.WS, TabID: c.TabID, Pane: c.PaneID, Kind: KindWorktree, Label: pl.Label}
 				return nil
 			}
@@ -66,7 +74,7 @@ func (m *mux) place(pl Placement, cwd string) (placed, error) {
 				}
 			}
 			if free {
-				if err := m.cl.renameTab(m.ctx, rec.FreeTab, pl.Label); err != nil {
+				if err := m.cl.renameTab(m.ctx, rec.FreeTab, tabLabel); err != nil {
 					return err
 				}
 				out = placed{WS: *group, TabID: rec.FreeTab, Pane: rec.FreePane, Kind: KindTab, Label: pl.Label}
@@ -78,7 +86,7 @@ func (m *mux) place(pl Placement, cwd string) (placed, error) {
 			g[pl.Group] = rec
 		}
 
-		c, err := m.cl.createTab(m.ctx, group.ID, pl.Label, cwd)
+		c, err := m.cl.createTab(m.ctx, group.ID, tabLabel, cwd)
 		if err != nil {
 			return err
 		}
