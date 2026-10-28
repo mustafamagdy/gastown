@@ -140,7 +140,7 @@ Sessions are laid out using herdr's hierarchy rather than one workspace per agen
 - Each rig gets one workspace labelled with the rig name (rooted at `<town>/<rig>/.repo.git` when present), with its witness, refinery and crew as tabs (`witness`, `refinery`, `crew-max`).
 - Each polecat is a herdr linked-worktree workspace nested under its rig workspace. If herdr cannot open the polecat's directory as a worktree it becomes a tab in the rig workspace instead.
 
-Killing a session closes only its tab (or its polecat workspace); Gas Town never removes git worktrees through herdr.
+Tab labels (and polecat workspace labels) are prefixed with the role emoji used by the web dashboard (`🎩 mayor`, `🐺 deacon`, `🦉 witness`, `🏭 refinery`, `👨‍💼 crew-max`, `🐕 dog-alpha`, `🦨 alpha`), and rig workspaces with `🏗️` (`🏗️ demo`); `hq` stays plain. Set `GT_HERDR_EMOJI=0` to disable. Workspaces from older versions with undecorated labels are reused and renamed. Killing a session closes only its tab (or its polecat workspace); Gas Town never removes git worktrees through herdr.
 
 Not supported under herdr: tmux themes, the status line, and Gas Town's tmux key bindings (cycle, feed, agents menu). herdr provides its own UI and keybindings. tmux-only doctor checks report "skipped (herdr backend)".
 

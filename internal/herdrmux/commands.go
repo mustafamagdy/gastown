@@ -801,21 +801,24 @@ func (m *mux) cmdRenameSession(args []string) error {
 	} else if !errors.Is(err, ErrNoState) {
 		return err
 	}
-	label := newName
+	label := newName // plain label, stored in state
+	shown := newName // label shown in herdr (role emoji prefix)
 	if s.State.Kind != "" {
-		label = Classify(newName, s.State.Cwd, s.State.Env, s.State.Command).Label
+		pl := Classify(newName, s.State.Cwd, s.State.Env, s.State.Command)
+		label = pl.Label
 		if s.State.Kind == KindWorktree {
 			label = s.State.Label // the worktree workspace keeps its worker name
 		}
+		shown = DisplayLabel(pl.Role, label)
 	}
 	if s.State.Kind == KindTab {
-		if label != s.State.Label {
-			if err := m.cl.renameTab(m.ctx, s.State.TabID, label); err != nil {
+		if label != s.State.Label || s.Tab == nil || s.Tab.Label != shown {
+			if err := m.cl.renameTab(m.ctx, s.State.TabID, shown); err != nil {
 				return err
 			}
 		}
-	} else if label != s.WS.Label {
-		if err := m.cl.renameWorkspace(m.ctx, s.WS.ID, label); err != nil {
+	} else if shown != s.WS.Label {
+		if err := m.cl.renameWorkspace(m.ctx, s.WS.ID, shown); err != nil {
 			return err
 		}
 	}
