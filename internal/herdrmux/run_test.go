@@ -276,7 +276,7 @@ func TestSendKeysAndCapture(t *testing.T) {
 		t.Error("activity not touched")
 	}
 
-	f.reads["w2:p1 --source visible"] = "visible text\n"
+	f.reads["w2:p1 --source visible"] = "visible text\r\n"
 	f.reads["w2:p1 --source recent --lines 50"] = "recent\n"
 	f.reads["w2:p1 --source recent-unwrapped --lines 100000 --format ansi"] = "all\n"
 	out, _, _ := run("capture-pane", "-p", "-t", "s")

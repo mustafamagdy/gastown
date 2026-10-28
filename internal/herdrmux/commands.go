@@ -427,6 +427,10 @@ func (m *mux) cmdCapturePane(args []string) error {
 	if err != nil {
 		return err
 	}
+	// herdr ends lines with CR; tmux capture-pane never emits it, and screen
+	// scrapers (submit verification, prompt detection) treat a stray CR as
+	// text in the composer.
+	out = strings.ReplaceAll(out, "\r", "")
 	if out != "" && !strings.HasSuffix(out, "\n") {
 		out += "\n"
 	}
