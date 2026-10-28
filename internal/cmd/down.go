@@ -370,6 +370,15 @@ func runDown(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Warn about sessions left on the inactive multiplexer backend (e.g. after
+	// switching tmux <-> herdr). Never killed automatically.
+	if stray := session.ListInactiveBackendSessions(tmux.GetDefaultSocket()); stray != nil {
+		fmt.Println()
+		fmt.Printf("%s Warning: %s\n", style.Bold.Render("⚠"), stray.Describe())
+		fmt.Printf("  Stop them with: %s\n", style.Dim.Render(stray.StopCmd))
+		allOK = false
+	}
+
 	// Phase 5: Orphan cleanup and verification (--all or --force)
 	if (downAll || downForce) && !downDryRun {
 		fmt.Println()

@@ -125,12 +125,7 @@ func InitRegistry(townRoot string) error {
 	// Determine the tmux socket name from GT_TMUX_SOCKET env var:
 	//   unset / "default" / "auto" → per-town socket derived from town directory path
 	//   any other value            → use that name as-is
-	socket := os.Getenv("GT_TMUX_SOCKET")
-	switch socket {
-	case "", "default", "auto":
-		socket = townSocketName(townRoot)
-	}
-	tmux.SetDefaultSocket(socket)
+	tmux.SetDefaultSocket(ResolveTownSocket(townRoot))
 
 	if err := initMultiplexer(townRoot); err != nil {
 		errs = append(errs, err)
