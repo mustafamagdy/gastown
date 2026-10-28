@@ -30,8 +30,11 @@ type SessionState struct {
 	HerdrPaneID   string            `json:"herdr_pane_id,omitempty"` // e.g. "w2:p1"
 	SupervisorPID int               `json:"supervisor_pid,omitempty"`
 	PanePID       int               `json:"pane_pid,omitempty"` // child process pid (tmux #{pane_pid})
-	Dead          bool              `json:"dead,omitempty"`
-	DeadStatus    int               `json:"dead_status,omitempty"`
+	// ScreenHash fingerprints the visible screen at the last activity query;
+	// a change marks the session active (herdr has no activity timestamp).
+	ScreenHash string `json:"screen_hash,omitempty"`
+	Dead       bool   `json:"dead,omitempty"`
+	DeadStatus int    `json:"dead_status,omitempty"`
 	// RespawnKill is set by respawn-pane -k so the supervisor kills the
 	// running child before starting the new Command.
 	RespawnKill bool `json:"respawn_kill,omitempty"`

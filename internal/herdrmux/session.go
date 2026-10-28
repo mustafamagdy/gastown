@@ -3,6 +3,8 @@
 package herdrmux
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -263,7 +265,7 @@ func (f *fmtCtx) lookup(name string) string {
 	case "session_created":
 		return fmt.Sprint(s.State.Created)
 	case "session_activity", "window_activity":
-		return fmt.Sprint(s.State.Activity)
+		return fmt.Sprint(f.activity())
 	case "session_last_attached":
 		return "0"
 	case "session_attached":
@@ -311,4 +313,31 @@ func (f *fmtCtx) lookup(name string) string {
 func (m *mux) render(format string, s *session) string {
 	f := &fmtCtx{m: m, s: s}
 	return RenderFormat(format, f.lookup)
+}
+
+// activity returns the session's last-activity time. herdr does not track
+// output activity, so it is derived lazily: if the visible screen changed
+// since the last query, the session counts as active now.
+func (f *fmtCtx) activity() int64 {
+	st := f.s.State
+	if f.s.PaneID() == "" {
+		return st.Activity
+	}
+	text, err := f.m.cl.readPane(f.m.ctx, f.s.PaneID(), "visible", 0, false)
+	if err != nil {
+		return st.Activity
+	}
+	sum := sha256.Sum256([]byte(text))
+	hash := hex.EncodeToString(sum[:8])
+	if hash == st.ScreenHash {
+		return st.Activity
+	}
+	now := time.Now().Unix()
+	_ = f.m.store.Update(f.s.Name, false, func(cur *SessionState) error {
+		cur.ScreenHash = hash
+		cur.Activity = now
+		return nil
+	})
+	st.ScreenHash, st.Activity = hash, now
+	return now
 }

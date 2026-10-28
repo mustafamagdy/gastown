@@ -37,7 +37,8 @@ type supervisor struct {
 	session string
 	paneID  string // herdr pane id, e.g. "w2:p1"
 	shimDir string
-	ttyFd   int // controlling terminal fd, or -1 when stdin is not a terminal
+	ttyFd   int           // controlling terminal fd, or -1 when stdin is not a terminal
+	termios *unix.Termios // terminal settings at supervisor start, restored before each (re)spawn
 	sigCh   chan os.Signal
 
 	mu   sync.Mutex
@@ -67,6 +68,9 @@ func Supervise(ctx context.Context, sock, session string) int {
 	}
 	if isTerminalFd(int(os.Stdin.Fd())) {
 		s.ttyFd = int(os.Stdin.Fd())
+		if tio, err := unix.IoctlGetTermios(s.ttyFd, ioctlGetTermios); err == nil {
+			s.termios = tio
+		}
 	}
 
 	rootCtx, cancel := context.WithCancel(ctx)
@@ -179,6 +183,7 @@ func (s *supervisor) start(st *SessionState) (*childProc, error) {
 	if command == "" {
 		command = "exec " + shellOrDefault()
 	}
+	s.resetTerminal()
 	cmd := exec.Command("/bin/sh", "-c", command)
 	cmd.Dir = st.Cwd
 	cmd.Env = s.buildEnv(st)
@@ -369,6 +374,26 @@ func (s *supervisor) shutdown(c *childProc, done chan int) {
 	}
 	s.reclaimForeground()
 	s.recordDeath(128 + int(syscall.SIGTERM))
+}
+
+// resetTerminal gives a (re)spawned child a pristine terminal, like the fresh
+// pty tmux creates for respawn-pane. A previous child (typically an
+// interactive shell killed mid-readline) can leave the tty in raw/no-echo mode
+// and enable terminal modes such as bracketed paste, which would corrupt input
+// delivered to the next child.
+func (s *supervisor) resetTerminal() {
+	if s.ttyFd < 0 {
+		return
+	}
+	if s.termios != nil {
+		// Called from our own foreground group, but ignore SIGTTOU for the
+		// call anyway (see reclaimForeground).
+		signal.Ignore(syscall.SIGTTOU)
+		_ = unix.IoctlSetTermios(s.ttyFd, ioctlSetTermios, s.termios)
+		signal.Notify(s.sigCh, syscall.SIGTTOU)
+	}
+	// Bracketed paste off, application cursor keys off, pop kitty keyboard mode.
+	_, _ = os.Stdout.WriteString("\x1b[?2004l\x1b[?1l\x1b[<u")
 }
 
 // reclaimForeground makes the supervisor's own process group the terminal's
