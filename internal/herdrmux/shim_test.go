@@ -78,3 +78,30 @@ func TestEnsureShimDefaultsToExecutable(t *testing.T) {
 		t.Errorf("shim does not reference %s:\n%s", exe, data)
 	}
 }
+
+func TestRealTmuxPathSkipsShim(t *testing.T) {
+	t.Setenv("GT_HERDR_STATE_DIR", t.TempDir())
+	t.Setenv("GT_REAL_TMUX", "")
+	t.Setenv("GT_BIN", "/fake/gt")
+	shimDir, err := EnsureShim()
+	if err != nil {
+		t.Fatal(err)
+	}
+	realDir := t.TempDir()
+	real := filepath.Join(realDir, "tmux")
+	if err := os.WriteFile(real, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", shimDir+string(os.PathListSeparator)+realDir)
+	if got, err := RealTmuxPath(); err != nil || got != real {
+		t.Errorf("RealTmuxPath = %q, %v; want %q", got, err, real)
+	}
+	t.Setenv("PATH", shimDir)
+	if _, err := RealTmuxPath(); err == nil {
+		t.Error("expected not found when only the shim is on PATH")
+	}
+	t.Setenv("GT_REAL_TMUX", "/opt/tmux")
+	if got, _ := RealTmuxPath(); got != "/opt/tmux" {
+		t.Errorf("GT_REAL_TMUX override = %q", got)
+	}
+}

@@ -44,7 +44,14 @@ type StraySessions struct {
 
 // Injection points for tests.
 var (
-	otherLookPath = exec.LookPath
+	// otherLookPath resolves binaries; "tmux" must be the real binary, not
+	// the herdr shim that is first on PATH under the herdr backend.
+	otherLookPath = func(name string) (string, error) {
+		if name == "tmux" {
+			return herdrmux.RealTmuxPath()
+		}
+		return exec.LookPath(name)
+	}
 	// otherRunTmux runs the real tmux binary and returns stdout.
 	otherRunTmux = func(bin string, args ...string) ([]byte, error) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

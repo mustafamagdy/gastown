@@ -87,3 +87,23 @@ func shellQuote(s string) string {
 	}
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
+
+// RealTmuxPath finds the real tmux binary on PATH, skipping the herdr tmux
+// shim directory (which InitRegistry prepends under the herdr backend).
+// GT_REAL_TMUX, the shim's own escape hatch, wins when set.
+func RealTmuxPath() (string, error) {
+	if p := os.Getenv("GT_REAL_TMUX"); p != "" {
+		return p, nil
+	}
+	shim := filepath.Clean(filepath.Join(StateRoot(), "bin"))
+	for _, dir := range filepath.SplitList(os.Getenv("PATH")) {
+		if dir == "" || filepath.Clean(dir) == shim {
+			continue
+		}
+		p := filepath.Join(dir, "tmux")
+		if fi, err := os.Stat(p); err == nil && !fi.IsDir() && fi.Mode()&0o111 != 0 {
+			return p, nil
+		}
+	}
+	return "", fmt.Errorf("real tmux not found on PATH (excluding %s)", shim)
+}
