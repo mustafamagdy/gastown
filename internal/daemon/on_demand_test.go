@@ -6,13 +6,15 @@ import (
 	"testing"
 	"time"
 
+	"github.com/steveyegge/gastown/internal/rig"
 	"github.com/steveyegge/gastown/internal/session"
 )
 
 type onDemandEnv struct {
 	*ghostTestEnv
-	now time.Time
-	mrs bool
+	now    time.Time
+	mrs    bool
+	active bool // a polecat still has work assigned
 }
 
 func setupOnDemand(t *testing.T) *onDemandEnv {
@@ -20,6 +22,10 @@ func setupOnDemand(t *testing.T) *onDemandEnv {
 	e := &onDemandEnv{ghostTestEnv: setupGhostTest(t), now: time.Unix(1_000_000, 0)}
 	e.daemon.onDemandNow = func() time.Time { return e.now }
 	e.daemon.onDemandPendingMRs = func(string) (bool, error) { return e.mrs, nil }
+	e.daemon.onDemandActivePolecats = func(string) (bool, error) { return e.active, nil }
+	orig := rig.PolecatSessionAlive
+	t.Cleanup(func() { rig.PolecatSessionAlive = orig })
+	rig.PolecatSessionAlive = func(_, polecat string) bool { return polecat == "toast" }
 	return e
 }
 
@@ -126,5 +132,30 @@ func TestLoadPatrolConfig_OnDemandIdleGrace(t *testing.T) {
 	cfg := LoadPatrolConfig(townRoot)
 	if cfg == nil || cfg.OnDemandIdleGrace != "90s" {
 		t.Fatalf("LoadPatrolConfig = %+v, want on_demand_idle_grace 90s", cfg)
+	}
+}
+
+// A finished polecat keeps its directory but has no session: the witness
+// stops after the grace, unless that polecat still has work assigned.
+func TestOnDemand_FinishedPolecatDoesNotPinWitness(t *testing.T) {
+	e := setupOnDemand(t)
+	ws := session.WitnessSessionName(session.PrefixFor("shop"))
+	e.addSessions(t, ws)
+	if err := os.MkdirAll(filepath.Join(e.daemon.config.TownRoot, "shop", "polecats", "furiosa"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	e.daemon.onDemandShouldRun("shop", "witness")
+	e.now = e.now.Add(time.Hour)
+	e.active = true
+	if !e.daemon.onDemandShouldRun("shop", "witness") || len(readKills(t, e.tmuxLog)) != 0 {
+		t.Fatal("polecat with assigned work (dead session): keep witness")
+	}
+	e.active = false
+	e.now = e.now.Add(time.Hour)
+	if e.daemon.onDemandShouldRun("shop", "witness") {
+		t.Fatal("finished polecat only, past grace: should stop")
+	}
+	if kills := readKills(t, e.tmuxLog); len(kills) != 1 || kills[0] != ws {
+		t.Fatalf("kills = %v", kills)
 	}
 }

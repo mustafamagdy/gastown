@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/steveyegge/gastown/internal/beads"
+	"github.com/steveyegge/gastown/internal/git"
+	"github.com/steveyegge/gastown/internal/polecat"
 	"github.com/steveyegge/gastown/internal/rig"
 	"github.com/steveyegge/gastown/internal/session"
 )
@@ -34,9 +36,11 @@ func (d *Daemon) onDemandClock() time.Time {
 //     stop it (same kill path used for parked/docked rigs). The rig is not
 //     parked or docked; the next piece of work restarts the agent.
 //
-// A refinery is never stopped while open or in-progress MRs exist (checked
-// only at stop time, since querying beads for every rig every heartbeat is
-// costly). A witness is never stopped while polecats exist (that is "work").
+// A refinery is never stopped while open or in-progress MRs exist, and a
+// witness never while a polecat still has work assigned (working, stalled,
+// stuck or review-needed), even if its session died. Both are checked only at
+// stop time, since querying beads for every rig every heartbeat is costly.
+// Running polecat sessions count as work on every heartbeat.
 func (d *Daemon) onDemandShouldRun(rigName, role string) bool {
 	townRoot := d.config.TownRoot
 	key := role + ":" + rigName
@@ -80,6 +84,18 @@ func (d *Daemon) onDemandShouldRun(rigName, role string) bool {
 		return true
 	}
 
+	if role == "witness" {
+		active, err := d.onDemandActivePolecatCheck(rigName)
+		if err != nil {
+			d.logger.Printf("On-demand rig %s: cannot verify polecat state, keeping witness: %v", rigName, err)
+			return true
+		}
+		if active {
+			d.onDemandLastWork[key] = now
+			return true
+		}
+	}
+
 	if role == "refinery" {
 		pending, err := d.onDemandPendingMRCheck(rigName)
 		if err != nil {
@@ -119,6 +135,31 @@ func (d *Daemon) onDemandPendingMRCheck(rigName string) (bool, error) {
 			return false, fmt.Errorf("listing %s merge requests: %w", status, err)
 		}
 		if len(issues) > 0 {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// onDemandActivePolecatCheck reports whether any of the rig's polecats still
+// needs its witness: assigned work in progress, a dead session with work
+// (stalled), or a request for help. Finished and idle polecats do not.
+func (d *Daemon) onDemandActivePolecatCheck(rigName string) (bool, error) {
+	if d.onDemandActivePolecats != nil {
+		return d.onDemandActivePolecats(rigName)
+	}
+	if len(rig.PolecatNames(d.config.TownRoot, rigName)) == 0 {
+		return false, nil
+	}
+	rigPath := filepath.Join(d.config.TownRoot, rigName)
+	mgr := polecat.NewManager(&rig.Rig{Name: rigName, Path: rigPath}, git.NewGit(rigPath), d.tmux)
+	polecats, err := mgr.List()
+	if err != nil {
+		return false, err
+	}
+	for _, p := range polecats {
+		switch p.State {
+		case polecat.StateWorking, polecat.StateStalled, polecat.StateStuck, polecat.StateReviewNeeded:
 			return true, nil
 		}
 	}

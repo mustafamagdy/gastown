@@ -15,25 +15,46 @@ func mkdir(t *testing.T, parts ...string) string {
 	return p
 }
 
-func TestHasPolecats(t *testing.T) {
+// stubAlive makes PolecatSessionAlive report the given polecats as running.
+func stubAlive(t *testing.T, alive ...string) {
+	t.Helper()
+	orig := PolecatSessionAlive
+	t.Cleanup(func() { PolecatSessionAlive = orig })
+	PolecatSessionAlive = func(_, polecat string) bool {
+		for _, a := range alive {
+			if a == polecat {
+				return true
+			}
+		}
+		return false
+	}
+}
+
+func TestHasLivePolecats(t *testing.T) {
+	stubAlive(t, "toast")
 	town := t.TempDir()
-	if HasPolecats(town, "r") {
-		t.Fatal("no polecats dir: want false")
+	if HasLivePolecats(town, "r") || PolecatNames(town, "r") != nil {
+		t.Fatal("no polecats dir: want none")
 	}
 	mkdir(t, town, "r", "polecats", ".hidden")
 	if err := os.WriteFile(filepath.Join(town, "r", "polecats", "file"), nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if HasPolecats(town, "r") {
-		t.Fatal("only hidden dirs and files: want false")
+	mkdir(t, town, "r", "polecats", "furiosa") // finished, session gone
+	if names := PolecatNames(town, "r"); len(names) != 1 || names[0] != "furiosa" {
+		t.Fatalf("PolecatNames = %v", names)
+	}
+	if HasLivePolecats(town, "r") || WitnessHasWork(town, "r") {
+		t.Fatal("polecat dir without a session: want false")
 	}
 	mkdir(t, town, "r", "polecats", "toast")
-	if !HasPolecats(town, "r") || !WitnessHasWork(town, "r") {
-		t.Fatal("polecat dir present: want true")
+	if !HasLivePolecats(town, "r") || !WitnessHasWork(town, "r") {
+		t.Fatal("running polecat: want true")
 	}
 }
 
 func TestRefineryHasWork(t *testing.T) {
+	stubAlive(t, "toast")
 	town := t.TempDir()
 	if RefineryHasWork(town, "r") {
 		t.Fatal("idle rig: want false")
@@ -57,6 +78,6 @@ func TestRefineryHasWork(t *testing.T) {
 	town2 := t.TempDir()
 	mkdir(t, town2, "r", "polecats", "toast")
 	if !RefineryHasWork(town2, "r") {
-		t.Fatal("polecat present: refinery has work")
+		t.Fatal("running polecat: refinery has work")
 	}
 }

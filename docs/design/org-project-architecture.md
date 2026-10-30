@@ -119,10 +119,11 @@ Registration is cheap: a bare clone shared through local git objects.
 - **Switch:** `on_demand` in `project.json` (absent means true;
   `gt project create --on-demand=false` keeps the project's rigs always-on).
   Rigs outside a project behave as upstream: always-on.
-- **Witness has work** when the rig has at least one non-hidden directory under
-  `<rig>/polecats/`.
+- **Witness has work** when one of the rig's polecats has a running session.
+  Polecat directories outlive their sessions (finished polecats are kept for
+  reuse), so a directory alone is not work.
 - **Refinery has work** when a pending `events/refinery/*.event` names the rig
-  (`payload.rig`) or the rig has polecats (they will submit MRs). Open MR
+  (`payload.rig`) or the rig has a running polecat (it will submit an MR). Open MR
   beads are not polled on every heartbeat (too costly across ~120 rigs); they
   are checked only before a refinery is stopped.
 - **Daemon:** on each heartbeat an on-demand rig's witness/refinery is started
@@ -131,8 +132,10 @@ Registration is cheap: a bare clone shared through local git objects.
   stopped with the same kill path used for parked rigs, but the rig is not
   parked or docked. The last-work time lives in daemon memory; after a daemon
   restart the clock starts at the first observation, so nothing is killed
-  immediately. A witness is never stopped while polecats exist, and a refinery
-  never while open or in-progress MRs exist (or while a safety stop applies).
+  immediately. A witness is never stopped while a polecat still has work assigned
+  (working, stalled, stuck or review-needed, even with a dead session), and a
+  refinery never while open or in-progress MRs exist (or while a safety stop
+  applies). Both are checked only just before stopping.
 - **Fast start:** spawning a polecat into an on-demand rig starts its witness
   immediately, and `gt mq submit` starts the refinery before nudging it,
   instead of waiting for the next heartbeat. Failures are logged and the

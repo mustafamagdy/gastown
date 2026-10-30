@@ -30,6 +30,9 @@ func setupOnDemandTown(t *testing.T, onDemand bool) string {
 }
 
 func TestUpOnDemandIdle(t *testing.T) {
+	orig := rig.PolecatSessionAlive
+	t.Cleanup(func() { rig.PolecatSessionAlive = orig })
+	rig.PolecatSessionAlive = func(_, polecat string) bool { return polecat == "toast" }
 	town := setupOnDemandTown(t, true)
 	in := &rig.Rig{Name: "in", Path: filepath.Join(town, "in")}
 	out := &rig.Rig{Name: "out", Path: filepath.Join(town, "out")}
@@ -44,7 +47,7 @@ func TestUpOnDemandIdle(t *testing.T) {
 		t.Fatal(err)
 	}
 	if upOnDemandIdle("in", in, rig.WitnessHasWork) || upOnDemandIdle("in", in, rig.RefineryHasWork) {
-		t.Fatal("project rig with polecats must start agents")
+		t.Fatal("project rig with a running polecat must start agents")
 	}
 }
 

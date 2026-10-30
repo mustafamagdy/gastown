@@ -125,6 +125,8 @@ type Daemon struct {
 	// onDemandNow and onDemandPendingMRs are test seams (nil = real).
 	onDemandNow        func() time.Time
 	onDemandPendingMRs func(rigName string) (bool, error)
+	// onDemandActivePolecats is a test seam (nil = real polecat state check).
+	onDemandActivePolecats func(rigName string) (bool, error)
 
 	// rigPool runs per-rig heartbeat operations (witness checks, refinery checks,
 	// polecat health, idle reaping, branch pruning) with bounded concurrency and
