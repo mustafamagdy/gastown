@@ -41,12 +41,13 @@ const (
 )
 
 // Per-rig states. RigBranch is the only one set by feature creation; the
-// others are reserved for landing.
+// others are set by landing.
 const (
 	RigBranch  = "branch"  // feature branch exists in the rig
 	RigPROpen  = "pr_open" // PR from the feature branch is open
-	RigLanded  = "landed"  // PR merged
-	RigHeld    = "held"    // PR rejected or blocked
+	RigLanded  = "landed"  // merged into the base branch
+	RigHeld    = "held"    // landing failed or the PR is blocked
+	RigSkipped = "skipped" // no commits ahead of the base; nothing to land
 	RigPending = "pending" // reserved: not yet branched
 )
 
@@ -60,6 +61,7 @@ type RigState struct {
 	State        string `json:"state"`                   // Rig* constants
 	PRURL        string `json:"pr_url,omitempty"`        // set by landing
 	PRID         string `json:"pr_id,omitempty"`         // set by landing
+	PRHead       string `json:"pr_head,omitempty"`       // PR head commit at the last evaluation; the merge guard
 	LandedCommit string `json:"landed_commit,omitempty"` // set by landing
 	Error        string `json:"error,omitempty"`         // last landing error
 }
@@ -85,6 +87,8 @@ type Record struct {
 	CreatedAt time.Time           `json:"created_at"`
 	Rigs      map[string]RigState `json:"rigs"`
 	Tasks     []Task              `json:"tasks"`
+	// LandingOrder is the order rigs land in, fixed when landing starts.
+	LandingOrder []string `json:"landing_order,omitempty"`
 }
 
 var idRegexp = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)

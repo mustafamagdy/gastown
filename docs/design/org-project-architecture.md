@@ -267,7 +267,8 @@ feature needs one branch per rig.
 
 The record holds the epic id, project, title, the one branch name used in every
 rig, a state (`open`, `landing`, `landed`, `held`), per-rig state (base branch,
-base commit, `state`, `pr_url`, `pr_id`, `landed_commit`, `error`) and the list
+base commit, `state`, `pr_url`, `pr_id`, `pr_head`, `landed_commit`, `error`), the
+`landing_order` and the list
 of tasks (rig bead id, rig, title, `after` list). A task's status is not stored;
 it is always read from the bead. Writes are atomic and serialized with a file
 lock, so the CLI and the daemon do not lose each other's changes. The code is in
@@ -314,11 +315,41 @@ lock, so the CLI and the daemon do not lose each other's changes. The code is in
    the MR has merged into the target branch, which for a feature task is the
    feature branch, so closed means merged. Work that skips the merge queue
    (`--no-merge`, review only) is closed by `gt done` itself.
-8. Not built yet: landing. When every task is done, the project refinery opens
-   linked PRs in every repo, in dependency order, and they land as a set; a
-   rejected PR holds the others. The record's per-rig `state`, `pr_url`,
-   `pr_id`, `landed_commit` and `error` fields and the feature states
-   `landing`, `landed` and `held` are reserved for it.
+8. `gt project feature land <feature> [--dry-run]` lands the feature across its
+   rigs as a linked set (`internal/projectfeature/land.go`). Every pass is
+   idempotent and driven by re-running the command.
+   - **Preconditions**, all reported together, nothing changes if one fails:
+     every task bead closed; no open or in-progress MR targets the feature
+     branch in any rig; each rig's feature branch exists on origin and is ahead
+     of its base. A rig with no commits ahead gets state `skipped`; if every rig
+     is skipped, landing is an error.
+   - **Conflict preflight**: each branch is test-merged into its current base
+     with `git merge-tree --write-tree` in the rig's bare repo (no ref is
+     touched). Any conflict stops before anything lands and names rigs and
+     files.
+   - **Landing order**: rigs whose tasks wait (`after`) for another rig's tasks
+     land later; ties are alphabetical; rigs in a cycle stay alphabetical among
+     themselves and a warning is printed. The order is stored in the record as
+     `landing_order`.
+   - **`direct`**: per rig, in order, a `--no-ff` merge in a temporary worktree
+     of the bare repo, the rig's `merge_queue.test_command` if it has one, then
+     a push of the base with `GT_INTEGRATION_LAND=1`. The merge commit names the
+     feature id and landing order. A failure sets the rig and feature to `held`
+     with the error, keeps what already landed and prints what landed and what
+     did not. Re-running resumes at the first rig that has not landed.
+   - **`pr`** (default): see "PR layer" below.
+   - **Completion**: when every rig is landed or skipped, the epic bead is
+     closed, the feature branch is deleted on origin and in the rig repo (best
+     effort, warnings only), the state becomes `landed` and an incremental
+     service map build runs. Landing a landed feature again is a no-op.
+   - `--dry-run` prints the plan and the preflight result and changes nothing
+     (it only refreshes remote-tracking refs). `status` shows state, PR URL and
+     landed commit per rig, the landing order and what is blocking.
+9. The daemon heartbeat runs `gt project feature land <id>` for features in
+   state `landing`, at most once every 5 minutes per feature, in the background.
+   It never starts a landing: only a human running `land` moves a feature from
+   `open` to `landing`. `open` and `held` features are left alone; a held
+   feature resumes when someone fixes the cause and re-runs `land`.
 
 Each polecat writes to its own worktree and gets read-only checkouts of the
 neighbouring repos; a contract change also runs the consumers' tests.
@@ -347,8 +378,32 @@ calls `gh` directly).
 - Project settings `merge_strategy` (pr by default), `vcs_provider` (detected
   from the remote when empty) and `require_review` (true by default) are read
   with `config.ProjectLandSettings`.
+- `UpdatePRBody` replaces a PR description (`gh pr edit --body`,
+  `az repos pr update --description`); the coordinator uses it to link sibling
+  PRs.
 - Commands use exec args, never a shell, and no credentials are read, passed or
   logged: auth is whatever `gh auth` or `az login` holds.
+
+**Landing a feature with PRs** (`merge_strategy: pr`). `land` runs two stages,
+both idempotent. The provider is resolved per rig from `vcs_provider` or the
+rig's origin remote (`projectfeature.NewProvider`, replaced by a fake in tests).
+
+1. *Open*: `CreatePR` for every rig without a PR (head is the feature branch,
+   base is the rig's base, title `<feature title> (<rig> n of m)`, body naming
+   the feature id, landing order and sibling repos). Once all exist, each PR
+   body is updated with links to its siblings (a failure to do so is a
+   warning). The feature becomes `landing`. A re-run reuses the recorded PRs.
+2. *Advance*: read checks and, when `require_review`, the review state of every
+   open PR. If any is rejected, failing, closed or targets another base, the
+   feature is `held` with the reasons and nothing merges. If any is pending,
+   the run reports and waits (the daemon re-runs it). Only when all are passing
+   and approved do PRs merge, in landing order, with `ExpectHead` set to the
+   head recorded at evaluation (`pr_head`); the PR, checks, review and the
+   merge against the current base are re-read before each merge. A failed merge
+   (`ErrHeadMoved`, `ErrNotMerged`, anything else) holds the feature and leaves
+   the remaining PRs open. A PR merged outside gt (GetPR state merged) counts as
+   landed. The merge method is `merge`, so each repo's history keeps a merge
+   commit; the PR title and body carry the feature id.
 
 ## Review gate (lavish)
 
@@ -432,7 +487,7 @@ a project (many repos) polecats are tabs, not nested worktree workspaces.
 | 1 | Project layer: config, `gt project`, project beads, prime context, rigs on demand, herdr grouping | done (tested on the `contrib/project-demo` shop project) |
 | 2 | Org identity in agents, per-town AXI tool list, `gt doctor` checks | planned |
 | 3 | Project brain: brief, service map, read-only neighbours | done |
-| 4 | Multi-repo features: feature records, same-name branches, ordered dispatch (built); linked PRs and landing, Azure DevOps PR provider | partly built |
+| 4 | Multi-repo features: feature records, same-name branches, ordered dispatch, linked PRs and landing (direct and PR), GitHub and Azure DevOps PR providers | done |
 | 5 | Review gate: `gt review`, reviewer dog, refinery approval gate | planned |
 | 6 | Runtime routing by quota | planned |
 | 7 | Planning sync with Azure Boards / GitHub | planned |

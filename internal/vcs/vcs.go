@@ -117,6 +117,8 @@ type Provider interface {
 	// Merge lands the PR and returns only once it is merged, or an error.
 	// pr.MergeCommit is filled in when the provider reports it.
 	Merge(ctx context.Context, pr *PR, opts MergeOptions) error
+	// UpdatePRBody replaces the description of an open PR.
+	UpdatePRBody(ctx context.Context, pr *PR, body string) error
 }
 
 // Options configures a provider.

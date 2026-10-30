@@ -90,3 +90,81 @@ func (d *Daemon) execFeatureRun(id string) ([]byte, error) {
 	cmd.Env = append(beads.BuildMutationRoutingBDEnv(os.Environ(), filepath.Join(d.config.TownRoot, ".beads")), "GT_DAEMON=1")
 	return cmd.CombinedOutput()
 }
+
+// featureLandInterval is the minimum time between land attempts per feature.
+const featureLandInterval = 5 * time.Minute
+
+// featureLandTimeout bounds one 'gt project feature land' (it may run tests).
+const featureLandTimeout = 15 * time.Minute
+
+// dueLandings returns the features in state "landing" that have not been
+// advanced within featureLandInterval and marks them as run now. Only a human
+// starts a landing ('gt project feature land'), which moves the feature to
+// "landing"; open and held features are never touched here.
+func (d *Daemon) dueLandings(now time.Time) []string {
+	recs, errs := projectfeature.ListAll(d.config.TownRoot)
+	for _, err := range errs {
+		d.logger.Printf("project_feature: %v", err)
+	}
+	if d.featureLandLastRun == nil {
+		d.featureLandLastRun = make(map[string]time.Time)
+	}
+	var due []string
+	for _, rec := range recs {
+		if rec.State != projectfeature.StateLanding {
+			continue
+		}
+		if now.Sub(d.featureLandLastRun[rec.ID]) < featureLandInterval {
+			continue
+		}
+		d.featureLandLastRun[rec.ID] = now
+		due = append(due, rec.ID)
+	}
+	return due
+}
+
+// advanceLandings re-runs 'gt project feature land' for features a human has
+// started landing. Background, one batch at a time; errors are logged and
+// never fail the heartbeat.
+func (d *Daemon) advanceLandings() {
+	due := d.dueLandings(time.Now())
+	if len(due) == 0 {
+		return
+	}
+	if !d.featureLanding.CompareAndSwap(false, true) {
+		return
+	}
+	go func() {
+		defer d.featureLanding.Store(false)
+		for _, id := range due {
+			d.landFeature(id)
+		}
+	}()
+}
+
+func (d *Daemon) landFeature(id string) {
+	run := d.featureLandFn
+	if run == nil {
+		run = d.execFeatureLand
+	}
+	out, err := run(id)
+	if err != nil {
+		d.logger.Printf("project_feature: land %s failed: %v (output: %s)", id, err, strings.TrimSpace(string(out)))
+	} else if s := strings.TrimSpace(string(out)); s != "" {
+		d.logger.Printf("project_feature: land %s: %s", id, s)
+	}
+}
+
+func (d *Daemon) execFeatureLand(id string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), featureLandTimeout)
+	defer cancel()
+	gt := d.gtPath
+	if gt == "" {
+		gt = "gt"
+	}
+	cmd := exec.CommandContext(ctx, gt, "project", "feature", "land", id)
+	setSysProcAttr(cmd)
+	cmd.Dir = d.config.TownRoot
+	cmd.Env = append(beads.BuildMutationRoutingBDEnv(os.Environ(), filepath.Join(d.config.TownRoot, ".beads")), "GT_DAEMON=1")
+	return cmd.CombinedOutput()
+}

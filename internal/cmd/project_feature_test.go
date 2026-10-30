@@ -138,3 +138,24 @@ func TestFeatureRigRepo(t *testing.T) {
 		t.Fatalf("repo = %+v %v", r, err)
 	}
 }
+
+func TestFeatureBlockers(t *testing.T) {
+	rec := &projectfeature.Record{
+		ID: "sh-1", State: projectfeature.StateHeld,
+		Rigs: map[string]projectfeature.RigState{
+			"api": {State: projectfeature.RigPROpen, PRURL: "https://x/1"},
+			"web": {State: projectfeature.RigHeld, Error: "review rejected"},
+		},
+	}
+	views := []projectfeature.TaskView{{State: projectfeature.TaskDone}, {State: projectfeature.TaskRunning}}
+	got := strings.Join(featureBlockers(rec, views), "\n")
+	for _, want := range []string{"1 task(s) not closed", "rig api: PR waits", "rig web held: review rejected", "feature is held"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("blockers missing %q:\n%s", want, got)
+		}
+	}
+	rec.State = projectfeature.StateLanded
+	if b := featureBlockers(rec, views); b != nil {
+		t.Errorf("landed feature has blockers: %v", b)
+	}
+}

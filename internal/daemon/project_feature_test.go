@@ -58,3 +58,42 @@ func TestRunFeatureLogsErrorsWithoutPanic(t *testing.T) {
 		t.Fatal("run function not called")
 	}
 }
+
+func TestDueLandingsOnlyAdvancesLandingFeatures(t *testing.T) {
+	town := featureTown(t) // sh-1 open, sh-2 landed, sh-3 open
+	mk := func(id, state string) {
+		rec := &projectfeature.Record{
+			ID: id, Project: "shop", Branch: "feat/" + id, State: state,
+			Rigs: map[string]projectfeature.RigState{"api": {State: projectfeature.RigBranch}},
+		}
+		if err := projectfeature.Create(town, rec); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mk("sh-4", projectfeature.StateLanding)
+	mk("sh-5", projectfeature.StateHeld)
+	d := &Daemon{config: &Config{TownRoot: town}, logger: log.New(io.Discard, "", 0)}
+	now := time.Now()
+	if due := d.dueLandings(now); len(due) != 1 || due[0] != "sh-4" {
+		t.Fatalf("due = %v, want only the landing feature (never open or held)", due)
+	}
+	if due := d.dueLandings(now.Add(4 * time.Minute)); len(due) != 0 {
+		t.Fatalf("throttled call returned %v", due)
+	}
+	if due := d.dueLandings(now.Add(featureLandInterval + time.Second)); len(due) != 1 {
+		t.Fatalf("after interval due = %v", due)
+	}
+}
+
+func TestAdvanceLandingsNeverStartsAnOpenFeature(t *testing.T) {
+	d := &Daemon{config: &Config{TownRoot: featureTown(t)}, logger: log.New(io.Discard, "", 0)}
+	called := make(chan string, 4)
+	d.featureLandFn = func(id string) ([]byte, error) { called <- id; return nil, nil }
+	d.advanceLandings()
+	time.Sleep(50 * time.Millisecond)
+	select {
+	case id := <-called:
+		t.Fatalf("land started for %s; the daemon must only advance landing features", id)
+	default:
+	}
+}

@@ -209,6 +209,16 @@ func (p *azureProvider) GetPR(ctx context.Context, id string) (*PR, error) {
 	return a.toPR(loc.webBase()), nil
 }
 
+func (p *azureProvider) UpdatePRBody(ctx context.Context, pr *PR, body string) error {
+	loc, err := p.resolve(ctx, "")
+	if err != nil {
+		return err
+	}
+	args := append([]string{"repos", "pr", "update", "--id", pr.ID, "--description", body}, loc.orgArgs()...)
+	_, err = p.az(ctx, "", args...)
+	return err
+}
+
 func (p *azureProvider) show(ctx context.Context, loc AzureLocation, id string) (*azPR, error) {
 	args := append([]string{"repos", "pr", "show", "--id", id}, loc.orgArgs()...)
 	out, err := p.az(ctx, "", args...)

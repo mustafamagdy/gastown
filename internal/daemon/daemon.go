@@ -102,6 +102,11 @@ type Daemon struct {
 	featureLastRun map[string]time.Time
 	featureRunning atomic.Bool
 	featureRunFn   func(id string) ([]byte, error)
+	// Landing of features a human started (state "landing"): throttle, guard
+	// and test hook, same pattern as above.
+	featureLandLastRun map[string]time.Time
+	featureLanding     atomic.Bool
+	featureLandFn      func(id string) ([]byte, error)
 
 	// Restart tracking with exponential backoff to prevent crash loops
 	restartTracker *RestartTracker
@@ -1051,6 +1056,9 @@ func (d *Daemon) heartbeat(state *State) {
 	} else {
 		d.advanceFeatures()
 	}
+	// Advance landings a human started. No pressure gate: landing spawns no
+	// polecats, it only talks to git and the PR provider.
+	d.advanceLandings()
 
 	// Update state
 	state.LastHeartbeat = time.Now()

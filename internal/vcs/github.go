@@ -249,6 +249,11 @@ func (p *githubProvider) Merge(ctx context.Context, pr *PR, opts MergeOptions) e
 	return nil
 }
 
+func (p *githubProvider) UpdatePRBody(ctx context.Context, pr *PR, body string) error {
+	_, err := p.gh(ctx, "", "pr", "edit", pr.ID, "--body", body)
+	return err
+}
+
 func lastLine(s string) string {
 	lines := strings.Split(strings.TrimSpace(s), "\n")
 	return strings.TrimSpace(lines[len(lines)-1])

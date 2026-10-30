@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -30,6 +31,7 @@ var (
 	featureRunDryRun      bool
 	featureRunIfStarted   bool
 	featureRunNoBoot      bool
+	featureLandDryRun     bool
 	featureRunSpawnPacing = 500 * time.Millisecond
 )
 
@@ -118,10 +120,42 @@ had its first task slung keeps advancing without further commands.`,
 	RunE: runProjectFeatureRun,
 }
 
+var projectFeatureLandCmd = &cobra.Command{
+	Use:   "land <feature> [--dry-run]",
+	Short: "Land a feature across its rigs as a linked set",
+	Long: `Land the feature branch of every rig as one set.
+
+Preconditions (all failures are reported, nothing changes if any fails): every
+task bead is closed, no open merge request targets the feature branch, and
+each rig's feature branch exists on origin and is ahead of its base. A rig
+with no commits ahead is skipped. Each branch is then test-merged into its
+current base (git merge-tree, no refs touched); any conflict stops everything.
+
+Rigs land in dependency order (a rig whose tasks wait for another rig's tasks
+lands later; ties alphabetical). The order is stored in the record.
+
+merge_strategy "direct": each rig is merged --no-ff in a temporary worktree,
+the rig's test command runs if it has one, and the base is pushed. A failure
+holds the feature and keeps what already landed; re-run to resume.
+
+merge_strategy "pr" (default): a PR is opened in every rig and each is updated
+with links to its siblings. Re-run land (the daemon does this every 5 minutes
+for a feature in state "landing") to advance: nothing merges until every PR is
+passing and approved, then they merge in landing order. A rejected or failing
+PR holds the whole set. A PR merged outside gt counts as landed.
+
+When every rig is landed or skipped the epic is closed, the feature branches
+are deleted and the service map is refreshed. --dry-run prints the plan and
+the preflight results and changes nothing.`,
+	Args: cobra.ExactArgs(1),
+	RunE: runProjectFeatureLand,
+}
+
 func init() {
 	projectCmd.AddCommand(projectFeatureCmd)
 	projectFeatureCmd.AddCommand(projectFeatureCreateCmd, projectFeatureAddRigCmd, projectFeatureTaskCmd,
-		projectFeatureOrderCmd, projectFeatureStatusCmd, projectFeatureRunCmd)
+		projectFeatureOrderCmd, projectFeatureStatusCmd, projectFeatureRunCmd, projectFeatureLandCmd)
+	projectFeatureLandCmd.Flags().BoolVar(&featureLandDryRun, "dry-run", false, "Print the plan and preflight results; change nothing")
 
 	projectFeatureCreateCmd.Flags().StringSliceVar(&featureCreateRigs, "rigs", nil, "Comma-separated rigs the feature spans (required)")
 	projectFeatureCreateCmd.Flags().StringVar(&featureCreateBranch, "branch", "", "Branch name used in every rig (default feat/<epic-id>-<slug>)")
@@ -573,6 +607,40 @@ type featureStatusOutput struct {
 	Tasks   []projectfeature.TaskView          `json:"tasks"`
 	Ready   []string                           `json:"ready"`
 	Counts  map[string]int                     `json:"counts"`
+	// LandingOrder and Blocking describe landing; Blocking says what stops it.
+	LandingOrder []string `json:"landing_order,omitempty"`
+	Blocking     []string `json:"blocking,omitempty"`
+}
+
+// featureBlockers says what keeps a feature from landing, from the record and
+// the live task states alone (no network).
+func featureBlockers(rec *projectfeature.Record, views []projectfeature.TaskView) []string {
+	var out []string
+	if rec.State == projectfeature.StateLanded {
+		return nil
+	}
+	notDone := 0
+	for _, v := range views {
+		if v.State != projectfeature.TaskDone {
+			notDone++
+		}
+	}
+	if notDone > 0 {
+		out = append(out, fmt.Sprintf("%d task(s) not closed", notDone))
+	}
+	for _, name := range featureRigNames(rec) {
+		rs := rec.Rigs[name]
+		switch {
+		case rs.State == projectfeature.RigHeld:
+			out = append(out, fmt.Sprintf("rig %s held: %s", name, rs.Error))
+		case rs.State == projectfeature.RigPROpen:
+			out = append(out, fmt.Sprintf("rig %s: PR waits for checks or review (%s)", name, rs.PRURL))
+		}
+	}
+	if rec.State == projectfeature.StateHeld {
+		out = append(out, "feature is held; fix the cause and re-run 'gt project feature land "+rec.ID+"'")
+	}
+	return out
 }
 
 func runProjectFeatureStatus(cmd *cobra.Command, args []string) error {
@@ -595,6 +663,8 @@ func runProjectFeatureStatus(cmd *cobra.Command, args []string) error {
 	for _, v := range projectfeature.ReadyTasks(views) {
 		out.Ready = append(out.Ready, v.ID)
 	}
+	out.LandingOrder = rec.LandingOrder
+	out.Blocking = featureBlockers(rec, views)
 	if featureStatusJSON {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
@@ -610,10 +680,22 @@ func runProjectFeatureStatus(cmd *cobra.Command, args []string) error {
 		if rs.PRURL != "" {
 			line += "  " + rs.PRURL
 		}
+		if rs.LandedCommit != "" {
+			line += "  landed " + short(rs.LandedCommit)
+		}
 		if rs.Error != "" {
 			line += "  error: " + rs.Error
 		}
 		fmt.Println(line)
+	}
+	if len(rec.LandingOrder) > 0 {
+		fmt.Printf("\nLanding order: %s\n", strings.Join(rec.LandingOrder, ", "))
+	}
+	if len(out.Blocking) > 0 {
+		fmt.Println("Blocking:")
+		for _, b := range out.Blocking {
+			fmt.Println("  - " + b)
+		}
 	}
 	fmt.Println("\nTasks:")
 	if len(views) == 0 {
@@ -713,6 +795,66 @@ func runProjectFeatureRun(cmd *cobra.Command, args []string) error {
 	fmt.Printf("%s Slung %d/%d ready task(s) of feature %s\n", style.Bold.Render("📊"), ok, len(ready), rec.ID)
 	if ok == 0 && failed > 0 {
 		return fmt.Errorf("all %d dispatch attempts failed for feature %s", failed, rec.ID)
+	}
+	return nil
+}
+
+func runProjectFeatureLand(cmd *cobra.Command, args []string) error {
+	townRoot, err := workspace.FindFromCwdOrError()
+	if err != nil {
+		return fmt.Errorf("not in a Gas Town workspace: %w", err)
+	}
+	rec, err := loadFeature(townRoot, args[0])
+	if err != nil {
+		return err
+	}
+	pcfg, err := config.LoadProjectConfig(townRoot, rec.Project)
+	if err != nil {
+		return fmt.Errorf("project %q: %w", rec.Project, err)
+	}
+	repos := map[string]projectfeature.RigRepo{}
+	for name := range rec.Rigs {
+		repo, err := featureRigRepo(townRoot, name)
+		if err != nil {
+			return err
+		}
+		repos[name] = repo
+	}
+	projectDir := config.ProjectDir(townRoot, rec.Project)
+	env := &projectfeature.LandEnv{
+		TownRoot:   townRoot,
+		Rec:        rec,
+		Settings:   config.ProjectLandSettings(pcfg),
+		Repos:      repos,
+		TaskStatus: func() map[string]string { return featureTaskStatuses(townRoot, rec) },
+		OpenMRs: func(rig, branch string) ([]string, error) {
+			mrs, err := findOpenMRsForIntegration(beads.New(filepath.Join(townRoot, rig)), branch)
+			if err != nil {
+				return nil, err
+			}
+			ids := make([]string, 0, len(mrs))
+			for _, mr := range mrs {
+				ids = append(ids, mr.ID)
+			}
+			return ids, nil
+		},
+		TestCommand: func(rig string) string { return getTestCommand(filepath.Join(townRoot, rig)) },
+		CloseEpic: func(reason string) error {
+			return BdCmd("close", rec.ID, "--reason="+reason).Dir(projectDir).WithAutoCommit().Run()
+		},
+		OnLanded: func() error {
+			_, _, err := projectmap.Build(townRoot, rec.Project, projectmap.BuildOptions{})
+			return err
+		},
+		Out:    os.Stdout,
+		DryRun: featureLandDryRun,
+	}
+	report, err := projectfeature.Land(context.Background(), env)
+	if err != nil {
+		return err
+	}
+	if report.Outcome == projectfeature.OutcomeHeld {
+		return fmt.Errorf("feature %s is held; fix the cause and re-run 'gt project feature land %s'", rec.ID, rec.ID)
 	}
 	return nil
 }

@@ -493,3 +493,28 @@ func TestDetectAndFactory(t *testing.T) {
 		t.Errorf("want azureProvider, got %T", p)
 	}
 }
+
+func TestUpdatePRBody(t *testing.T) {
+	_, calls := fakeCLI(t, "gh")
+	p, _ := New("github", Options{RepoDir: t.TempDir()})
+	if err := p.UpdatePRBody(context.Background(), &PR{ID: "7"}, "siblings: x"); err != nil {
+		t.Fatal(err)
+	}
+	if !anyCall(calls(), "pr edit 7", "--body siblings: x") {
+		t.Fatalf("calls = %v", calls())
+	}
+
+	dir2, _ := fakeCLI(t, "az")
+	put(t, dir2, "repos_pr_update.exit", "1")
+	put(t, dir2, "repos_pr_update.err", "boom")
+	if err := azProvider(t).UpdatePRBody(context.Background(), &PR{ID: "42"}, "d"); err == nil {
+		t.Fatal("expected az failure to surface")
+	}
+	_, calls3 := fakeCLI(t, "az")
+	if err := azProvider(t).UpdatePRBody(context.Background(), &PR{ID: "42"}, "linked"); err != nil {
+		t.Fatal(err)
+	}
+	if !anyCall(calls3(), "repos pr update", "--id 42", "--description linked", "--organization https://dev.azure.com/org") {
+		t.Fatalf("calls = %v", calls3())
+	}
+}
