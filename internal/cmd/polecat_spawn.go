@@ -159,6 +159,14 @@ func spawnPolecatForSlingInner(rigName string, opts SlingSpawnOptions) (*Spawned
 		return nil, fmt.Errorf("cannot sling to %s rig %q\n%s %s", reason, rigName, undoCmd, rigName)
 	}
 
+	// Multi-repo feature tasks start from the feature branch of this rig. This
+	// fails (no fall back to the default branch) when the bead is marked but
+	// the feature record or the rig's branch cannot be resolved.
+	featureBase, err := featureBaseForSpawn(townRoot, rigName, r.Path, opts.HookBead, opts.BaseBranch, opts.ResumeBranch)
+	if err != nil {
+		return nil, fmt.Errorf("resolving feature branch: %w", err)
+	}
+
 	var admission *polecatAdmissionHandle
 	if !opts.SkipAdmission {
 		admission, _, err = acquirePolecatAdmissionFn(townRoot, rigName, opts.HookBead, "spawn-or-reuse")
@@ -203,6 +211,9 @@ func spawnPolecatForSlingInner(rigName string, opts SlingSpawnOptions) (*Spawned
 		// must not start from main or an integration branch.
 		baseBranch := opts.BaseBranch
 		if opts.ResumeBranch == "" {
+			if featureBase != "" {
+				baseBranch = featureBase
+			}
 			if baseBranch == "" && opts.HookBead != "" {
 				settingsPath := filepath.Join(r.Path, "settings", "config.json")
 				polecatIntegrationEnabled := true
@@ -307,6 +318,9 @@ func spawnPolecatForSlingInner(rigName string, opts SlingSpawnOptions) (*Spawned
 	// we must not start from main or auto-detect an integration branch.
 	baseBranch := opts.BaseBranch
 	if opts.ResumeBranch == "" {
+		if featureBase != "" {
+			baseBranch = featureBase
+		}
 		if baseBranch == "" && opts.HookBead != "" {
 			// Auto-detect: check if the hooked bead's parent epic has an integration branch
 			settingsPath := filepath.Join(r.Path, "settings", "config.json")

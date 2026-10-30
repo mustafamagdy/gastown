@@ -190,6 +190,20 @@ func runMqSubmit(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Multi-repo feature task: the target is the feature branch of this rig.
+	// Final and fail closed: no auto-detect, no fall back to the default.
+	featureTarget, featureMarked, featureErr := featureTargetForBead(townRoot, rigName, issueID, sourceIssue)
+	if featureErr != nil {
+		return fmt.Errorf("resolving feature branch: %w", featureErr)
+	}
+	if featureMarked {
+		if mqSubmitEpic != "" {
+			return fmt.Errorf("issue %s belongs to feature branch %s; --epic cannot override it", issueID, featureTarget)
+		}
+		target = featureTarget
+		fmt.Printf("  Target branch: %s (feature branch)\n", target)
+	}
+
 	// Get source issue for priority inheritance and dependency check
 	var priority int
 	if mqSubmitPriority >= 0 {

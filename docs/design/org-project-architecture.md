@@ -256,17 +256,72 @@ Registration is cheap: a bare clone shared through local git objects.
 
 ## Multi-repo features
 
-1. The mayor creates the feature epic in the project beads and uses the
-   service map to choose the affected rigs.
-2. Every affected repo gets an integration branch with the same name, for
-   example `feat/xe-42-tenant-credits`.
-3. Child tasks are ordered by the service map: contracts and schema first,
-   then producers, consumers, UI. Independent children run in parallel.
-4. Each polecat writes to its own worktree and gets read-only checkouts of the
-   neighbouring repos. A contract change also runs the consumers' tests.
-5. When every child is done, the project refinery opens linked PRs in every
-   repo, in dependency order, and they land as a set. A rejected PR holds the
-   others.
+A multi-repo feature is one epic in the project beads plus a **feature
+record**, a JSON file at `projects/<project>/features/<epic-id>.json`. The
+record is the source of truth. Bead edges cannot be: `bd` drops a parent link
+whose target lives in another database (a rig child of a project epic reads
+back with no parent, so integration branch detection finds nothing and spawn
+and `gt done` fall back to main), `bd list --parent` only sees the local
+database, and an epic holds a single integration branch and base, while a
+feature needs one branch per rig.
+
+The record holds the epic id, project, title, the one branch name used in every
+rig, a state (`open`, `landing`, `landed`, `held`), per-rig state (base branch,
+base commit, `state`, `pr_url`, `pr_id`, `landed_commit`, `error`) and the list
+of tasks (rig bead id, rig, title, `after` list). A task's status is not stored;
+it is always read from the bead. Writes are atomic and serialized with a file
+lock, so the CLI and the daemon do not lose each other's changes. The code is in
+`internal/projectfeature`.
+
+1. `gt project feature create <project> "<title>" --rigs a,b,c [--branch name]`
+   creates the epic in the project beads and the same-named branch (default
+   `feat/<epic-id>-<slug>`) in every rig. The rigs must belong to the project.
+   With `--branch`, the name is checked in all rigs before anything is created;
+   with the default name (which needs the epic id) the check runs right after
+   the epic is created, before any push, and the epic is closed if it fails.
+   Branches are cut from each rig's default branch in its `.repo.git` and
+   pushed to origin. If any rig fails, the branches already pushed are deleted.
+   `add-rig <feature> <rig>` does the same for one more rig.
+2. `gt project feature task <feature> <rig> "<title>" [-d desc] [--after id]...`
+   creates the bead in the rig's database and records it. The bead description
+   starts with a `project_feature: <epic-id>` line (same `key: value` convention
+   as the other bead fields).
+3. `gt project feature order <feature>` fills the `after` edges from the service
+   map: tasks of rig A wait for all tasks of rig B when A calls B or consumes an
+   event B publishes. Rigs that depend on each other get no order between them
+   (a warning is printed), and so does an edge that would close a cycle with
+   explicit `--after` edges. Explicit edges are kept when `order` is run again.
+4. **Target resolution fails closed.** For a bead with the marker (or listed in
+   a record), polecat spawn bases the worktree on `origin/<feature branch>`,
+   `gt done` and `gt mq submit` target the feature branch, and `--target`,
+   `--base-branch`, `--epic` and the `direct` merge strategy cannot point
+   elsewhere. If the record is missing, the rig is not part of the feature, the
+   feature is landed or the branch does not exist on origin, the command fails
+   with an error instead of using the default branch. Beads without the marker
+   behave exactly as before.
+5. `gt project feature run <feature>` slings every ready task (bead open, every
+   `after` task closed, rig in the project) through `executeSling`, the same
+   path as batch sling. It is idempotent. `status <feature> [--json]` shows
+   the branch per rig and, per task, the live bead status and whether it is
+   ready, blocked, running or done.
+6. The daemon heartbeat runs `gt project feature run <id> --if-started` for
+   every open feature, at most once a minute per feature, in the background and
+   behind the polecat pressure gate. `--if-started` makes the run a no-op until
+   some task has left `open`, so the first dispatch stays an explicit decision.
+   Errors are logged; the heartbeat never fails because of it.
+7. A task counts as done when its bead is closed. For merge queue work the
+   source bead is closed by the refinery (MERGE_COMPLETED callback) only after
+   the MR has merged into the target branch, which for a feature task is the
+   feature branch, so closed means merged. Work that skips the merge queue
+   (`--no-merge`, review only) is closed by `gt done` itself.
+8. Not built yet: landing. When every task is done, the project refinery opens
+   linked PRs in every repo, in dependency order, and they land as a set; a
+   rejected PR holds the others. The record's per-rig `state`, `pr_url`,
+   `pr_id`, `landed_commit` and `error` fields and the feature states
+   `landing`, `landed` and `held` are reserved for it.
+
+Each polecat writes to its own worktree and gets read-only checkouts of the
+neighbouring repos; a contract change also runs the consumers' tests.
 
 ### PR layer
 
@@ -377,7 +432,7 @@ a project (many repos) polecats are tabs, not nested worktree workspaces.
 | 1 | Project layer: config, `gt project`, project beads, prime context, rigs on demand, herdr grouping | done (tested on the `contrib/project-demo` shop project) |
 | 2 | Org identity in agents, per-town AXI tool list, `gt doctor` checks | planned |
 | 3 | Project brain: brief, service map, read-only neighbours | done |
-| 4 | Multi-repo features: same-name integration branches, ordered linked PRs, Azure DevOps PR provider | planned |
+| 4 | Multi-repo features: feature records, same-name branches, ordered dispatch (built); linked PRs and landing, Azure DevOps PR provider | partly built |
 | 5 | Review gate: `gt review`, reviewer dog, refinery approval gate | planned |
 | 6 | Runtime routing by quota | planned |
 | 7 | Planning sync with Azure Boards / GitHub | planned |

@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gofrs/flock"
@@ -94,6 +95,13 @@ type Daemon struct {
 	// serviceMapLastRun throttles project service map refreshes per project.
 	// Only accessed from heartbeat loop goroutine - no sync needed.
 	serviceMapLastRun map[string]time.Time
+
+	// featureLastRun throttles multi-repo feature runs per feature id (heartbeat
+	// goroutine only). featureRunning guards the background batch; featureRunFn
+	// replaces the 'gt project feature run' call in tests.
+	featureLastRun map[string]time.Time
+	featureRunning atomic.Bool
+	featureRunFn   func(id string) ([]byte, error)
 
 	// Restart tracking with exponential backoff to prevent crash loops
 	restartTracker *RestartTracker
@@ -1035,6 +1043,14 @@ func (d *Daemon) heartbeat(state *State) {
 
 	// 16. Refresh project service maps (incremental: unchanged rigs are skipped).
 	d.refreshServiceMaps()
+
+	// 17. Sling newly ready tasks of open multi-repo features (throttled per
+	// feature, background, pressure-gated like other polecat dispatch).
+	if p := d.checkPressure("polecat"); !p.OK {
+		d.logger.Printf("Deferring feature dispatch: %s", p.Reason)
+	} else {
+		d.advanceFeatures()
+	}
 
 	// Update state
 	state.LastHeartbeat = time.Now()

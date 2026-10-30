@@ -954,6 +954,8 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 	var convoyInfo *ConvoyInfo // Populated if issue is tracked by a convoy
 	var sourceIssueForNoMerge *beads.Issue
 	var sourceBD *beads.Beads
+	var featureTarget string // feature branch of a multi-repo feature task
+	var featureMarked bool
 	if exitType == ExitCompleted {
 		if branch == defaultBranch || branch == "master" {
 			return fmt.Errorf("cannot submit %s/master branch to merge queue", defaultBranch)
@@ -1005,6 +1007,12 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 			}
 			sourceIssueForNoMerge = sourceInfo.Issue
 			sourceBD = sourceInfo.BD
+			// Feature tasks must merge into the feature branch; fail closed.
+			ft, fm, ferr := featureTargetForBead(townRoot, rigName, issueID, sourceIssueForNoMerge)
+			if ferr != nil {
+				return fmt.Errorf("resolving feature branch: %w", ferr)
+			}
+			featureTarget, featureMarked = ft, fm
 			if af := beads.ParseAttachmentFields(sourceIssueForNoMerge); af != nil {
 				if af.NoMerge || af.ReviewOnly {
 					isNoMergeTask = true
@@ -1191,6 +1199,10 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 		convoyInfo = getConvoyInfoFromSourceIssue(sourceIssueForNoMerge)
 		if convoyInfo == nil {
 			convoyInfo = getConvoyInfoForIssue(issueID)
+		}
+
+		if featureMarked && convoyInfo != nil && convoyInfo.MergeStrategy == "direct" {
+			return fmt.Errorf("issue %s belongs to feature branch %s; the direct merge strategy would push to %s", issueID, featureTarget, defaultBranch)
 		}
 
 		// Handle "local" strategy: skip push and MR entirely
@@ -1646,6 +1658,16 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 					target = autoTarget
 				}
 			}
+		}
+
+		// 4. Multi-repo feature task: the MR target is the feature branch of this
+		// rig. Final and fail closed: no auto-detect, no fall back to the default.
+		if featureMarked {
+			if explicitTarget && strings.TrimPrefix(doneTarget, "origin/") != featureTarget {
+				return fmt.Errorf("issue %s belongs to feature branch %s, but --target is %s", issueID, featureTarget, doneTarget)
+			}
+			target = featureTarget
+			fmt.Printf("  Target branch: %s (feature branch)\n", target)
 		}
 
 		// Get source issue for priority inheritance
