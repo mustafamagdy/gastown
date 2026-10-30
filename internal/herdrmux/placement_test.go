@@ -21,8 +21,50 @@ func mkTown(t *testing.T) string {
 	return town
 }
 
+// mkProjectTown makes a town whose rig "demo" belongs to project "shop".
+func mkProjectTown(t *testing.T) string {
+	t.Helper()
+	town := t.TempDir()
+	for _, d := range []string{"demo/.repo.git", "mayor", "projects/shop"} {
+		if err := os.MkdirAll(filepath.Join(town, d), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	reg := `{"version":1,"rigs":{"demo":{"git_url":"x","project":"shop"},"other":{"git_url":"y"}}}`
+	if err := os.WriteFile(filepath.Join(town, "mayor", "rigs.json"), []byte(reg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return town
+}
+
+// Rigs of one project share the project's workspace; polecats are tabs.
+func TestProjectGroup(t *testing.T) {
+	f, run := newFake(t, "gt-pj")
+	town := mkProjectTown(t)
+	f.worktrees["/w/nitro"] = true
+	env := func(rig, role string) []string {
+		return []string{"-e", "GT_ROLE=" + rig + "/" + role, "-e", "GT_RIG=" + rig, "-e", "GT_PROJECT=shop", "-e", "GT_TOWN_ROOT=" + town}
+	}
+	mustRun(t, run, append([]string{"new-session", "-d", "-s", "de-witness"}, env("demo", "witness")...)...)
+	mustRun(t, run, append([]string{"new-session", "-d", "-s", "bi-refinery"}, env("billing", "refinery")...)...)
+	mustRun(t, run, append([]string{"new-session", "-d", "-s", "de-nitro", "-c", "/w/nitro"}, env("demo", "polecats/nitro")...)...)
+	if got := f.wsLabels(); !reflect.DeepEqual(got, []string{"📦 shop"}) {
+		t.Fatalf("workspaces = %v", got)
+	}
+	if got := f.tabLabels("📦 shop"); !reflect.DeepEqual(got, []string{"👀 demo", "🔀 billing", "🐱 nitro@demo"}) {
+		t.Errorf("tabs = %v", got)
+	}
+	if opens := f.herdrCalls("worktree open"); len(opens) != 0 {
+		t.Errorf("worktree open = %v, want none in a project", opens)
+	}
+	if creates := f.herdrCalls("workspace create"); len(creates) != 1 || flagVal(creates[0], "--cwd") != filepath.Join(town, "projects/shop") {
+		t.Errorf("workspace create = %v", creates)
+	}
+}
+
 func TestClassify(t *testing.T) {
 	town := mkTown(t)
+	projTown := mkProjectTown(t)
 	t.Setenv("GT_TOWN_ROOT", "")
 	t.Setenv("GT_ROOT", "")
 	cases := []struct {
@@ -65,6 +107,14 @@ func TestClassify(t *testing.T) {
 			Placement{Kind: KindTab, Group: "demo", GroupCwd: "/x", Label: "weird", Rig: "demo"}},
 		{"no identity", "s", "/x", nil, "",
 			Placement{Kind: KindTab, Group: "hq", GroupCwd: "/x", Label: "s"}},
+		{"project from GT_PROJECT", "or-witness", "/x", map[string]string{"GT_ROLE": "orders/witness", "GT_RIG": "orders", "GT_PROJECT": "shop"}, "",
+			Placement{Kind: KindTab, Group: "shop", GroupCwd: "/x", Label: "orders", Rig: "orders", Role: "witness", Project: "shop"}},
+		{"project polecat is a tab", "or-nitro", "/w/nitro", map[string]string{"GT_ROLE": "orders/polecats/nitro", "GT_RIG": "orders", "GT_PROJECT": "shop"}, "",
+			Placement{Kind: KindTab, Group: "shop", GroupCwd: "/w/nitro", Label: "nitro@orders", Rig: "orders", Role: "polecat", Project: "shop"}},
+		{"project from rigs.json", "to-crew-max", "/x", map[string]string{"GT_ROLE": "demo/crew/max", "GT_RIG": "demo", "GT_CREW": "max", "GT_TOWN_ROOT": projTown}, "",
+			Placement{Kind: KindTab, Group: "shop", GroupCwd: filepath.Join(projTown, "projects/shop"), Label: "max@demo", Rig: "demo", Role: "crew", Project: "shop"}},
+		{"rig outside any project", "ot-witness", "/x", map[string]string{"GT_ROLE": "other/witness", "GT_RIG": "other", "GT_TOWN_ROOT": projTown}, "",
+			Placement{Kind: KindTab, Group: "other", GroupCwd: "/x", Label: "witness", Rig: "other", Role: "witness"}},
 		{"town role beats stray GT_RIG", "hq-mayor", "/x", map[string]string{"GT_ROLE": "mayor", "GT_RIG": "demo"}, "",
 			Placement{Kind: KindTab, Group: "hq", GroupCwd: "/x", Label: "mayor", Role: "mayor"}},
 	}

@@ -3,6 +3,7 @@
 package herdrmux
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -25,10 +26,11 @@ const townGroup = "hq"
 // Placement says where a session lives in herdr's hierarchy.
 type Placement struct {
 	Kind     string // KindTab or KindWorktree (worktree falls back to a tab)
-	Group    string // label of the group workspace ("hq" or the rig name)
+	Group    string // label of the group workspace ("hq", the project or the rig name)
 	GroupCwd string // cwd for the group workspace (and its root tab)
 	Label    string // tab label (or worktree workspace label)
 	Rig      string // rig name, empty for town-level sessions
+	Project  string // project the rig belongs to, empty if none
 	Role     string // normalised role, may be empty
 }
 
@@ -38,7 +40,7 @@ var townRoles = map[string]bool{"mayor": true, "deacon": true, "boot": true, "do
 // rigRoles are the roles that live in a rig.
 var rigRoles = map[string]bool{"witness": true, "refinery": true, "crew": true, "polecat": true}
 
-var envInCommand = regexp.MustCompile(`(?:^|[\s;&|(])(GT_ROLE|GT_RIG|GT_POLECAT|GT_CREW|GT_TOWN_ROOT|GT_ROOT|GT_DOG_NAME)=('[^']*'|"[^"]*"|[^\s;&|)]+)`)
+var envInCommand = regexp.MustCompile(`(?:^|[\s;&|(])(GT_ROLE|GT_RIG|GT_PROJECT|GT_POLECAT|GT_CREW|GT_TOWN_ROOT|GT_ROOT|GT_DOG_NAME)=('[^']*'|"[^"]*"|[^\s;&|)]+)`)
 
 // envFromCommand extracts GT_* identity variables written inline in a
 // command string ("export GT_ROLE=x && ..." or "env GT_ROLE=x cmd"), for
@@ -116,6 +118,28 @@ func townRootOf(env map[string]string) string {
 	return ""
 }
 
+// projectOfRig reads the rig's project from <town>/mayor/rigs.json ("" when
+// the rig has none or the registry is unreadable). herdrmux imports no other
+// gastown package, so this decodes only the one field it needs.
+func projectOfRig(townRoot, rig string) string {
+	if townRoot == "" || rig == "" {
+		return ""
+	}
+	data, err := os.ReadFile(filepath.Join(townRoot, "mayor", "rigs.json"))
+	if err != nil {
+		return ""
+	}
+	var reg struct {
+		Rigs map[string]struct {
+			Project string `json:"project"`
+		} `json:"rigs"`
+	}
+	if json.Unmarshal(data, &reg) != nil {
+		return ""
+	}
+	return reg.Rigs[rig].Project
+}
+
 func isDir(p string) bool {
 	fi, err := os.Stat(p)
 	return err == nil && fi.IsDir()
@@ -179,6 +203,15 @@ func Classify(name, cwd string, env map[string]string, command string) Placement
 		return p
 	}
 
+	if project := merged["GT_PROJECT"]; project != "" || root != "" {
+		if project == "" {
+			project = projectOfRig(root, rig)
+		}
+		if project != "" {
+			return projectPlacement(p, project, root, cwd, worker)
+		}
+	}
+
 	p.Group = rig
 	p.Kind = KindTab
 	p.Label = shortLabel(name, rig)
@@ -195,6 +228,31 @@ func Classify(name, cwd string, env map[string]string, command string) Placement
 		p.Kind = KindWorktree
 		if worker != "" {
 			p.Label = worker
+		}
+	}
+	return p
+}
+
+// projectPlacement puts a rig session of a project into the project's group
+// workspace. herdr links a worktree workspace only to a workspace of the same
+// repo, and a project spans many repos, so every session, polecats included,
+// is a tab, labelled with its rig: "orders-svc" for the witness and refinery,
+// "<worker>@<rig>" for polecats and crew.
+func projectPlacement(p Placement, project, root, cwd, worker string) Placement {
+	p.Project = project
+	p.Group = project
+	p.Kind = KindTab
+	p.Label = p.Rig
+	if worker != "" && (p.Role == "polecat" || p.Role == "crew") {
+		p.Label = worker + "@" + p.Rig
+	}
+	p.GroupCwd = cwd
+	if root != "" {
+		switch dir := filepath.Join(root, "projects", project); {
+		case isDir(dir):
+			p.GroupCwd = dir
+		case isDir(root):
+			p.GroupCwd = root
 		}
 	}
 	return p
