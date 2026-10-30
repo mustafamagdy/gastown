@@ -1,0 +1,7 @@
+[Unit]
+Description=Rebuild gt from the gastown fork when main changes
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/libexec/gt-autoupdate.sh
+TimeoutStartSec=20min

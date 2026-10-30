@@ -1,0 +1,6 @@
+{
+  "type": "town-settings",
+  "version": 1,
+  "multiplexer": "herdr",
+  "herdr_session": "default"
+}
