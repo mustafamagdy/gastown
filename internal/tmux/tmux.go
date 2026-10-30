@@ -1995,14 +1995,16 @@ func (t *Tmux) CheckStartupBlocked(session string) error {
 
 // AcceptWorkspaceTrustDialog dismisses workspace trust dialogs for supported
 // agents. Claude shows "Quick safety check"; Codex shows
-// "Do you trust the contents of this directory?". In both cases the safe
-// continue option is pre-selected, so Enter accepts the dialog.
+// "Do you trust the contents of this directory?". The pre-selected option is
+// not stable across versions (Claude Code 2.1.312 pre-selects "No, exit"), so
+// the cursor is moved to the "Yes" option and verified before Enter is sent.
 //
 // Uses a polling loop instead of a single check to handle the race condition where
 // the agent hasn't rendered the dialog yet when we first check. Exits early if the
 // agent prompt appears (indicating no dialog will be shown).
 func (t *Tmux) AcceptWorkspaceTrustDialog(session string) error {
 	deadline := time.Now().Add(constants.DialogPollTimeout)
+	dialogSeen := false
 	for time.Now().Before(deadline) {
 		content, err := t.CapturePane(session, 30)
 		if err != nil {
@@ -2014,13 +2016,14 @@ func (t *Tmux) AcceptWorkspaceTrustDialog(session string) error {
 		// Codex trust screens include a leading ">" banner line, so prompt
 		// detection alone would exit too early.
 		if containsWorkspaceTrustDialog(content) {
-			// Dialog found — accept it (option 1 is pre-selected, just press Enter)
-			if _, err := t.run("send-keys", "-t", session, "Enter"); err != nil {
-				return err
+			dialogSeen = true
+			// The menu may not be fully rendered yet; keep polling until the
+			// cursor and the "Yes" option are both visible.
+			if _, ok := trustDialogCursorDelta(content); !ok {
+				time.Sleep(constants.DialogPollInterval)
+				continue
 			}
-			// Wait for dialog to dismiss before proceeding
-			time.Sleep(500 * time.Millisecond)
-			return nil
+			return t.confirmWorkspaceTrust(session, content)
 		}
 
 		// Early exit: if agent prompt or shell prompt is visible, no trust dialog will appear.
@@ -2033,8 +2036,111 @@ func (t *Tmux) AcceptWorkspaceTrustDialog(session string) error {
 		time.Sleep(constants.DialogPollInterval)
 	}
 
+	if dialogSeen {
+		// Never press Enter blindly: the default option may be "No, exit".
+		return fmt.Errorf("workspace trust dialog in %s: could not locate the trust option to select", session)
+	}
+
 	// Timeout — no dialog detected, safe to proceed
 	return nil
+}
+
+// confirmWorkspaceTrust moves the trust dialog cursor onto the "Yes" option,
+// re-reads the pane to verify the selection, and only then sends Enter.
+// Fails closed without sending Enter if the selection cannot be verified.
+func (t *Tmux) confirmWorkspaceTrust(session, content string) error {
+	delta, ok := trustDialogCursorDelta(content)
+	if !ok {
+		return fmt.Errorf("workspace trust dialog in %s: could not locate the trust option to select", session)
+	}
+	key := "Down"
+	if delta < 0 {
+		key, delta = "Up", -delta
+	}
+	for i := 0; i < delta; i++ {
+		if _, err := t.run("send-keys", "-t", session, key); err != nil {
+			return err
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if delta > 0 {
+		time.Sleep(200 * time.Millisecond)
+		content, err := t.CapturePane(session, 30)
+		if err != nil {
+			return err
+		}
+		if d, ok := trustDialogCursorDelta(content); !ok || d != 0 {
+			return fmt.Errorf("workspace trust dialog in %s: trust option not selected after moving cursor; refusing to confirm", session)
+		}
+	}
+	if _, err := t.run("send-keys", "-t", session, "Enter"); err != nil {
+		return err
+	}
+	// Wait for dialog to dismiss before proceeding
+	time.Sleep(500 * time.Millisecond)
+	return nil
+}
+
+// trustDialogCursorMarkers are the selection cursors drawn by agent menus:
+// Claude uses "❯", Codex uses "›".
+var trustDialogCursorMarkers = []string{"❯", "›"}
+
+// trustDialogCursorDelta returns how many lines the menu cursor must move
+// (positive = Down) to reach the "Yes" option of the most recent workspace
+// trust dialog in content. ok is false if the dialog, its cursor, or its
+// "Yes" option is not visible.
+func trustDialogCursorDelta(content string) (delta int, ok bool) {
+	lines := strings.Split(content, "\n")
+	start := -1
+	for i, line := range lines {
+		// The "Yes, I trust this folder" option itself matches the dialog
+		// markers; anchor on the dialog header, not on its options.
+		option, _ := trimTrustDialogCursor(line)
+		if containsWorkspaceTrustDialog(line) && !trustDialogIsYesOption(option) {
+			start = i
+		}
+	}
+	if start < 0 {
+		return 0, false
+	}
+	cursor, yes := -1, -1
+	for i := start; i < len(lines); i++ {
+		option, selected := trimTrustDialogCursor(lines[i])
+		if selected {
+			cursor = i
+		}
+		if trustDialogIsYesOption(option) {
+			yes = i
+		}
+	}
+	if cursor < 0 || yes < 0 {
+		return 0, false
+	}
+	return yes - cursor, true
+}
+
+// trimTrustDialogCursor strips surrounding space and a leading menu cursor
+// from line, reporting whether the cursor was present.
+func trimTrustDialogCursor(line string) (string, bool) {
+	option := strings.TrimSpace(line)
+	for _, marker := range trustDialogCursorMarkers {
+		if strings.HasPrefix(option, marker) {
+			return strings.TrimSpace(strings.TrimPrefix(option, marker)), true
+		}
+	}
+	return option, false
+}
+
+// trustDialogIsYesOption reports whether a menu option (cursor marker already
+// stripped) is the affirmative choice, e.g. "Yes, I trust this folder" or
+// Codex's "1. Yes, continue".
+func trustDialogIsYesOption(option string) bool {
+	if i := strings.Index(option, ". "); i > 0 && i <= 2 {
+		if _, err := strconv.Atoi(option[:i]); err == nil {
+			option = option[i+2:]
+		}
+	}
+	return strings.HasPrefix(option, "Yes")
 }
 
 func containsWorkspaceTrustDialog(content string) bool {
@@ -2186,22 +2292,29 @@ func (t *Tmux) AcceptBypassPermissionsWarning(session string) error {
 // This avoids coupling to third-party TUI strings that can change with any update.
 //
 // The sequence handles (in order):
-//  1. Workspace trust dialog — Enter (option 1 "Yes, I trust this folder" is pre-selected)
+//  1. Workspace trust dialog — the one exception to blind keys: the default
+//     option may be "No, exit" (Claude Code 2.1.312+), so a blind Enter would
+//     kill the session. If the dialog is visible, the "Yes" option is selected
+//     and verified before confirming (see confirmWorkspaceTrust).
 //  2. Bypass permissions warning — Down+Enter (select "Yes, I accept" then confirm)
 //
-// Safe to call on sessions where no dialog is showing: Enter sends a blank input
-// to an idle Claude prompt (harmless for a stalled session), and Down+Enter either
-// does nothing or sends another blank input.
+// Safe to call on sessions where no dialog is showing: Down+Enter either
+// does nothing or sends a blank input to an idle prompt.
 //
 // This is intended for remediation of stalled sessions detected via structured
 // signals (session age + activity). For startup-time dialog handling where
 // precision matters, use AcceptStartupDialogs instead.
 func (t *Tmux) DismissStartupDialogsBlind(session string) error {
-	// Step 1: Send Enter to dismiss trust dialog (if present)
-	if _, err := t.run("send-keys", "-t", session, "Enter"); err != nil {
-		return fmt.Errorf("sending Enter for trust dialog: %w", err)
+	// Step 1: Accept trust dialog (if present) by explicit selection
+	content, err := t.CapturePane(session, 30)
+	if err != nil {
+		return fmt.Errorf("capturing pane for trust dialog: %w", err)
 	}
-	time.Sleep(500 * time.Millisecond)
+	if containsWorkspaceTrustDialog(content) {
+		if err := t.confirmWorkspaceTrust(session, content); err != nil {
+			return err
+		}
+	}
 
 	// Step 2: Send Down+Enter to dismiss bypass permissions dialog (if present)
 	if _, err := t.run("send-keys", "-t", session, "Down"); err != nil {

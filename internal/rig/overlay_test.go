@@ -2,7 +2,9 @@ package rig
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -547,6 +549,49 @@ func TestGasTownLocalExcludePatterns_IncludesBeads(t *testing.T) {
 		if p == ".beads/" {
 			t.Error("gasTownIgnorePatterns() must NOT include .beads/ - that breaks bd sync (see overlay.go)")
 		}
+	}
+}
+
+// TestEnsureLocalExcludePatterns_LinkedWorktree verifies that patterns land in
+// the exclude file git reads for a linked worktree (the common dir), so Gas Town
+// files are not reported as untracked (hq-z53).
+func TestEnsureLocalExcludePatterns_LinkedWorktree(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+	tmp := t.TempDir()
+	repo := filepath.Join(tmp, "repo")
+	wt := filepath.Join(tmp, "wt")
+	git := func(dir string, args ...string) string {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+		cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, out)
+		}
+		return string(out)
+	}
+	if err := os.MkdirAll(repo, 0755); err != nil {
+		t.Fatal(err)
+	}
+	git(repo, "init", "-q")
+	git(repo, "commit", "-q", "--allow-empty", "-m", "init")
+	git(repo, "worktree", "add", "-q", wt)
+
+	if err := EnsureLocalExcludePatterns(wt); err != nil {
+		t.Fatalf("EnsureLocalExcludePatterns: %v", err)
+	}
+	for _, dir := range []string{".beads", ".claude", ".runtime"} {
+		if err := os.MkdirAll(filepath.Join(wt, dir), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(wt, dir, "f"), []byte("x"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if status := git(wt, "status", "--porcelain"); strings.TrimSpace(status) != "" {
+		t.Errorf("linked worktree should be clean after EnsureLocalExcludePatterns, got:\n%s", status)
 	}
 }
 

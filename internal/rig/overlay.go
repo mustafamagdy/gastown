@@ -225,21 +225,24 @@ func EnsureLocalExcludePatterns(worktreePath string) error {
 	return nil
 }
 
+// gitLocalExcludePath returns the info/exclude file git actually reads for
+// worktreePath. For a linked worktree, --git-dir is .git/worktrees/<name>/,
+// whose info/exclude git ignores; --git-path resolves to the common dir.
 func gitLocalExcludePath(worktreePath string) (string, error) {
-	cmd := exec.Command("git", "-C", worktreePath, "rev-parse", "--git-dir")
+	cmd := exec.Command("git", "-C", worktreePath, "rev-parse", "--git-path", "info/exclude")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return "", fmt.Errorf("resolving git dir: %w: %s", err, strings.TrimSpace(string(out)))
+		return "", fmt.Errorf("resolving git exclude path: %w: %s", err, strings.TrimSpace(string(out)))
 	}
 
-	gitDir := strings.TrimSpace(string(out))
-	if gitDir == "" {
-		return "", fmt.Errorf("empty git dir for %s", worktreePath)
+	excludePath := strings.TrimSpace(string(out))
+	if excludePath == "" {
+		return "", fmt.Errorf("empty git exclude path for %s", worktreePath)
 	}
-	if !filepath.IsAbs(gitDir) {
-		gitDir = filepath.Join(worktreePath, gitDir)
+	if !filepath.IsAbs(excludePath) {
+		excludePath = filepath.Join(worktreePath, excludePath)
 	}
-	return filepath.Join(gitDir, "info", "exclude"), nil
+	return excludePath, nil
 }
 
 // matchesGitignorePattern checks if a gitignore line covers the required pattern.

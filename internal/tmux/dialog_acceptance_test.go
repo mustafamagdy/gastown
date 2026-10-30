@@ -45,8 +45,8 @@ func TestAcceptWorkspaceTrustDialog_DetectsDialog(t *testing.T) {
 	}
 	defer func() { _ = tm.KillSession(sessionName) }()
 
-	// Simulate the trust dialog by echoing its text into the pane
-	if err := tm.SendKeys(sessionName, "echo 'Quick safety check - do you trust this folder?'"); err != nil {
+	// Simulate the trust dialog (trust option already selected) by echoing its text into the pane
+	if err := tm.SendKeys(sessionName, "printf 'Quick safety check - do you trust this folder?\\n ❯ Yes, I trust this folder\\n   No, exit\\n'"); err != nil {
 		t.Fatalf("SendKeys: %v", err)
 	}
 	// Give the echo a moment to execute
@@ -61,6 +61,30 @@ func TestAcceptWorkspaceTrustDialog_DetectsDialog(t *testing.T) {
 	// but the function should return without error after detecting the dialog)
 }
 
+// TestAcceptWorkspaceTrustDialog_FailsClosedWhenNoSelected verifies that when
+// "No, exit" is pre-selected and the cursor cannot be moved onto the trust
+// option, Enter is never sent and an error is returned. Here the "dialog" is
+// static printf output, so Down keys cannot move its cursor.
+func TestAcceptWorkspaceTrustDialog_FailsClosedWhenNoSelected(t *testing.T) {
+	tm := newTestTmux(t)
+	sessionName := "gt-test-trust-noexit-" + t.Name()
+
+	_ = tm.KillSession(sessionName)
+	if err := tm.NewSession(sessionName, ""); err != nil {
+		t.Fatalf("NewSession: %v", err)
+	}
+	defer func() { _ = tm.KillSession(sessionName) }()
+
+	if err := tm.SendKeys(sessionName, "printf 'Quick safety check\\n ❯ No, exit\\n   Yes, I trust this folder\\n'"); err != nil {
+		t.Fatalf("SendKeys: %v", err)
+	}
+	time.Sleep(300 * time.Millisecond)
+
+	if err := tm.AcceptWorkspaceTrustDialog(sessionName); err == nil {
+		t.Fatal("expected error when trust option cannot be selected, got nil")
+	}
+}
+
 // TestAcceptWorkspaceTrustDialog_DetectsCodexDialog verifies that Codex's
 // workspace trust prompt is treated as a trust dialog instead of an agent prompt.
 func TestAcceptWorkspaceTrustDialog_DetectsCodexDialog(t *testing.T) {
@@ -73,7 +97,7 @@ func TestAcceptWorkspaceTrustDialog_DetectsCodexDialog(t *testing.T) {
 	}
 	defer func() { _ = tm.KillSession(sessionName) }()
 
-	if err := tm.SendKeys(sessionName, "echo '> You are in /tmp/demo'; echo 'Do you trust the contents of this directory?'"); err != nil {
+	if err := tm.SendKeys(sessionName, "echo '> You are in /tmp/demo'; echo 'Do you trust the contents of this directory?'; echo '› 1. Yes, continue'; echo '  2. No, quit'"); err != nil {
 		t.Fatalf("SendKeys: %v", err)
 	}
 	time.Sleep(300 * time.Millisecond)
@@ -219,6 +243,44 @@ func TestContainsWorkspaceTrustDialog(t *testing.T) {
 			got := containsWorkspaceTrustDialog(tt.content)
 			if got != tt.want {
 				t.Errorf("containsWorkspaceTrustDialog(%q) = %v, want %v", tt.content, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestTrustDialogCursorDelta(t *testing.T) {
+	t.Parallel()
+	// Captured from Claude Code 2.1.312, which pre-selects "No, exit".
+	claude2_1_312 := ` Accessing workspace:
+ /home/mmagdy/gt/tododemo/polecats/rust/tododemo
+ Quick safety check: Is this a project you created or one you trust? (Like your own code, a well-known open source
+ project, or work from your team). If not, take a moment to review what's in this folder first.
+ Claude Code'll be able to read, edit, and execute files here.
+ Security guide
+ ❯ No, exit
+   Yes, I trust this folder
+ Enter to confirm · Esc to cancel`
+	tests := []struct {
+		name      string
+		content   string
+		wantDelta int
+		wantOK    bool
+	}{
+		{"claude 2.1.312 no pre-selected", claude2_1_312, 1, true},
+		{"claude yes pre-selected", "Quick safety check\n ❯ Yes, I trust this folder\n   No, exit", 0, true},
+		{"claude yes above cursor", "Quick safety check\n   Yes, I trust this folder\n   Maybe\n ❯ No, exit", -2, true},
+		{"codex numbered yes pre-selected", "> You are in /tmp/demo\nDo you trust the contents of this directory?\n› 1. Yes, continue\n  2. No, quit", 0, true},
+		{"stale cursor before dialog ignored", "❯ old menu\n  Yes, old\nQuick safety check\n ❯ No, exit\n   Yes, I trust this folder", 1, true},
+		{"menu not rendered yet", "Quick safety check: Is this a project you trust?", 0, false},
+		{"no yes option", "Quick safety check\n ❯ No, exit", 0, false},
+		{"no dialog", "user@host:~$\n❯ Yes", 0, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			delta, ok := trustDialogCursorDelta(tt.content)
+			if delta != tt.wantDelta || ok != tt.wantOK {
+				t.Errorf("trustDialogCursorDelta() = (%d, %v), want (%d, %v)", delta, ok, tt.wantDelta, tt.wantOK)
 			}
 		})
 	}
