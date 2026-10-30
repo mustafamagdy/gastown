@@ -123,7 +123,9 @@ Registration is cheap: a bare clone shared through local git objects.
   Polecat directories outlive their sessions (finished polecats are kept for
   reuse), so a directory alone is not work.
 - **Refinery has work** when a pending `events/refinery/*.event` names the rig
-  (`payload.rig`) or the rig has a running polecat (it will submit an MR). Open MR
+  (`payload.rig`) in the last 15 minutes, or the rig has a running polecat
+  (it will submit an MR). Older events are ignored: they are wake signals and
+  are not always consumed. Open MR
   beads are not polled on every heartbeat (too costly across ~120 rigs); they
   are checked only before a refinery is stopped.
 - **Daemon:** on each heartbeat an on-demand rig's witness/refinery is started

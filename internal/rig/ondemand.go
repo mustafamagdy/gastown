@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/steveyegge/gastown/internal/session"
 	"github.com/steveyegge/gastown/internal/tmux"
@@ -50,6 +52,10 @@ func HasLivePolecats(townRoot, rigName string) bool {
 // .event file addressed to the rig (payload.rig equals rigName). The refinery
 // channel is town-wide, so events without a rig payload are not attributed to
 // any rig here; emitters of MQ_SUBMIT/MERGE_READY events include rig=<name>.
+// Events older than MaxRefineryEventAge are ignored: an event is only a wake
+// signal and is not always consumed (a refinery woken by a nudge may merge
+// without reading it), while durable work (open MRs) is checked separately
+// before a refinery is stopped.
 func HasPendingRefineryEvents(townRoot, rigName string) bool {
 	dir := filepath.Join(townRoot, "events", "refinery")
 	entries, err := os.ReadDir(dir)
@@ -58,6 +64,9 @@ func HasPendingRefineryEvents(townRoot, rigName string) bool {
 	}
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".event") {
+			continue
+		}
+		if refineryEventTooOld(e) {
 			continue
 		}
 		data, err := os.ReadFile(filepath.Join(dir, e.Name())) //nolint:gosec // G304: path built from town events dir
@@ -72,6 +81,32 @@ func HasPendingRefineryEvents(townRoot, rigName string) bool {
 		}
 	}
 	return false
+}
+
+// MaxRefineryEventAge is how long a pending refinery event counts as work.
+const MaxRefineryEventAge = 15 * time.Minute
+
+// eventNow is the clock for event ages; a variable so tests can move it.
+var eventNow = time.Now
+
+// refineryEventTooOld reports whether an event file is older than
+// MaxRefineryEventAge. Event files are named "<unixnano>-<seq>-<pid>.event";
+// the file's modification time is the fallback.
+func refineryEventTooOld(e os.DirEntry) bool {
+	var at time.Time
+	if head, _, ok := strings.Cut(e.Name(), "-"); ok {
+		if ns, err := strconv.ParseInt(head, 10, 64); err == nil {
+			at = time.Unix(0, ns)
+		}
+	}
+	if at.IsZero() {
+		info, err := e.Info()
+		if err != nil {
+			return false
+		}
+		at = info.ModTime()
+	}
+	return eventNow().Sub(at) > MaxRefineryEventAge
 }
 
 // WitnessHasWork reports whether an on-demand rig needs a witness right now.

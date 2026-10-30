@@ -1,9 +1,11 @@
 package rig
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func mkdir(t *testing.T, parts ...string) string {
@@ -68,8 +70,9 @@ func TestRefineryHasWork(t *testing.T) {
 	write("1.event", `{"payload":{"rig":"other"}}`)
 	write("2.event", `{"payload":{}}`)
 	write("3.txt", `{"payload":{"rig":"r"}}`)
+	write(fmt.Sprintf("%d-1-1.event", time.Now().Add(-time.Hour).UnixNano()), `{"payload":{"rig":"r"}}`)
 	if HasPendingRefineryEvents(town, "r") || RefineryHasWork(town, "r") {
-		t.Fatal("events for other/no rig must not count")
+		t.Fatal("events for other/no rig, or stale events, must not count")
 	}
 	write("4.event", `{"payload":{"rig":"r"}}`)
 	if !HasPendingRefineryEvents(town, "r") || !RefineryHasWork(town, "r") {
