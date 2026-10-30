@@ -107,8 +107,12 @@ needs = ["heartbeat"]
 description = """
 First, clean up CLOSED wisps from previous cycles:
 ```bash
-bd mol wisp gc --closed --force
+bd mol wisp gc --closed --force --exclude-type chore
 ```
+
+> **Keep `--exclude-type chore` (hq-uau):** plugin-run receipts are closed
+> `chore` wisps. Cooldown gates read the last receipt, so deleting them makes
+> every plugin look due and the daemon re-dispatches all plugins each cycle.
 
 > **Warning (hq-3pp):** Do not run unscoped age-based wisp GC from inside
 > this patrol. Active patrol step wisps can be older than 1h before they run;
