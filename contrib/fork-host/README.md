@@ -28,6 +28,18 @@ contrib/fork-host/install.sh
 `install.sh` builds and installs gt, installs the updater, and enables the
 `gt-autoupdate.timer` user timer.
 
+## AXI tools
+
+`install-axi.sh` installs Node, pnpm and the AXI agent tools (`az-axi`,
+`chrome-devtools-axi`, `gh-axi`, `lavish-axi`, `quota-axi`, `tasks-axi`)
+user-locally at pinned versions, verifying the Node download checksum. It
+links everything into `~/.local/bin` and does not edit shell profiles. The
+wrapped CLIs are separate: `gh-axi` needs `gh`, `az-axi` needs `az`, and
+`chrome-devtools-axi` needs Chrome or Chromium.
+
+To use `pnpm` itself from a shell, set `PNPM_HOME=$HOME/.local/share/pnpm` and
+add `$PNPM_HOME/bin` to `PATH`.
+
 ## Auto-update
 
 `gt-autoupdate.sh` runs every 5 minutes. It fetches `origin/main` and compares
