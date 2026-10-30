@@ -166,7 +166,7 @@ type MergeQueueConfig struct {
 	MergeStrategy string `json:"merge_strategy,omitempty"`
 
 	// VCSProvider selects the VCS platform for PR operations when
-	// MergeStrategy="pr". Valid values: "github" (default), "bitbucket".
+	// MergeStrategy="pr". Valid values: "github" (default), "bitbucket", "azure" (PR layer only).
 	VCSProvider string `json:"vcs_provider,omitempty"`
 
 	// RequireReview controls whether the refinery requires at least one approving
@@ -468,6 +468,10 @@ func (e *Engineer) initPRProvider() error {
 			return err
 		}
 		e.prProvider = p
+	case "azure":
+		// The azure PR layer lives in internal/vcs and is driven by the
+		// project landing coordinator; the refinery PRProvider has no adapter.
+		return fmt.Errorf("vcs_provider %q is not supported by the refinery merge queue (supported: github, bitbucket); use the internal/vcs PR layer", e.config.VCSProvider)
 	default:
 		return fmt.Errorf("unknown vcs_provider %q (supported: github, bitbucket)", e.config.VCSProvider)
 	}

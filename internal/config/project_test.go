@@ -203,3 +203,56 @@ func TestRigOnDemand(t *testing.T) {
 		}
 	}
 }
+
+func TestProjectLandSettings(t *testing.T) {
+	no := false
+	cases := []struct {
+		name string
+		in   *ProjectConfig
+		want LandSettings
+	}{
+		{"nil", nil, LandSettings{MergeStrategy: "pr", RequireReview: true}},
+		{"defaults", &ProjectConfig{}, LandSettings{MergeStrategy: "pr", RequireReview: true}},
+		{"azure direct no review", &ProjectConfig{MergeStrategy: "direct", VCSProvider: "azure", RequireReview: &no},
+			LandSettings{MergeStrategy: "direct", VCSProvider: "azure", RequireReview: false}},
+	}
+	for _, c := range cases {
+		if got := ProjectLandSettings(c.in); got != c.want {
+			t.Errorf("%s: got %+v want %+v", c.name, got, c.want)
+		}
+	}
+}
+
+func TestProjectLandSettingsValidation(t *testing.T) {
+	base := ProjectConfig{Type: "project", Version: 1, Name: "p", Prefix: "p"}
+	ok := base
+	ok.MergeStrategy, ok.VCSProvider = "pr", "azure"
+	if err := ValidateProjectConfig(&ok); err != nil {
+		t.Fatal(err)
+	}
+	bad := base
+	bad.VCSProvider = "gitlab"
+	if err := ValidateProjectConfig(&bad); err == nil {
+		t.Error("want error for vcs_provider gitlab")
+	}
+	bad = base
+	bad.MergeStrategy = "rebase"
+	if err := ValidateProjectConfig(&bad); err == nil {
+		t.Error("want error for merge_strategy rebase")
+	}
+}
+
+func TestValidateMergeQueueVCS(t *testing.T) {
+	for _, c := range []struct {
+		strategy, provider string
+		ok                 bool
+	}{
+		{"", "", true}, {"direct", "github", true}, {"pr", "azure", true}, {"pr", "bitbucket", true},
+		{"pr", "gitlab", false}, {"squash", "", false},
+	} {
+		err := validateMergeQueueConfig(&MergeQueueConfig{MergeStrategy: c.strategy, VCSProvider: c.provider})
+		if (err == nil) != c.ok {
+			t.Errorf("%+v: err=%v", c, err)
+		}
+	}
+}

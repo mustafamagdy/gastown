@@ -35,6 +35,36 @@ type ProjectConfig struct {
 	// NeighbourCheckouts caps the read-only neighbour checkouts materialized
 	// for each polecat. nil means DefaultNeighbourCheckouts; 0 disables them.
 	NeighbourCheckouts *int `json:"neighbour_checkouts,omitempty"`
+
+	// Landing settings for the project's integration branches. All optional;
+	// see ProjectLandSettings for defaults.
+	MergeStrategy string `json:"merge_strategy,omitempty"` // "pr" (default) or "direct"
+	VCSProvider   string `json:"vcs_provider,omitempty"`   // "github", "azure"; empty = detect from the remote
+	RequireReview *bool  `json:"require_review,omitempty"` // nil means true
+}
+
+// LandSettings are the resolved landing settings of a project.
+type LandSettings struct {
+	MergeStrategy string // "pr" or "direct"
+	VCSProvider   string // "" means detect from each repo's remote
+	RequireReview bool
+}
+
+// ProjectLandSettings resolves a project's landing settings with defaults:
+// merge_strategy "pr", vcs_provider auto-detected, require_review true.
+func ProjectLandSettings(p *ProjectConfig) LandSettings {
+	s := LandSettings{MergeStrategy: "pr", RequireReview: true}
+	if p == nil {
+		return s
+	}
+	if p.MergeStrategy != "" {
+		s.MergeStrategy = p.MergeStrategy
+	}
+	s.VCSProvider = p.VCSProvider
+	if p.RequireReview != nil {
+		s.RequireReview = *p.RequireReview
+	}
+	return s
 }
 
 // DefaultNeighbourCheckouts is the neighbour checkout cap when unset.
@@ -161,6 +191,12 @@ func ValidateProjectConfig(cfg *ProjectConfig) error {
 	}
 	if !projectPrefixRegexp.MatchString(cfg.Prefix) {
 		return fmt.Errorf("invalid project prefix %q: must be alphanumeric with optional hyphens, start with a letter, max 20 chars", cfg.Prefix)
+	}
+	if err := ValidateMergeStrategy(cfg.MergeStrategy); err != nil {
+		return err
+	}
+	if err := ValidateVCSProvider(cfg.VCSProvider); err != nil {
+		return err
 	}
 	return nil
 }

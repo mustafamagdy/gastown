@@ -242,12 +242,37 @@ func validateRigSettings(c *RigSettings) error {
 // ErrInvalidOnConflict indicates an invalid on_conflict strategy.
 var ErrInvalidOnConflict = errors.New("invalid on_conflict strategy")
 
+// ValidateMergeStrategy checks a merge_strategy value ("" means direct).
+func ValidateMergeStrategy(v string) error {
+	switch v {
+	case "", "direct", "pr":
+		return nil
+	}
+	return fmt.Errorf("invalid merge_strategy %q (supported: direct, pr)", v)
+}
+
+// ValidateVCSProvider checks a vcs_provider value ("" means github).
+func ValidateVCSProvider(v string) error {
+	switch v {
+	case "", "github", "bitbucket", "azure":
+		return nil
+	}
+	return fmt.Errorf("invalid vcs_provider %q (supported: github, bitbucket, azure)", v)
+}
+
 // validateMergeQueueConfig validates a MergeQueueConfig.
 func validateMergeQueueConfig(c *MergeQueueConfig) error {
 	// Validate on_conflict strategy
 	if c.OnConflict != "" && c.OnConflict != OnConflictAssignBack && c.OnConflict != OnConflictAutoRebase {
 		return fmt.Errorf("%w: got '%s', want '%s' or '%s'",
 			ErrInvalidOnConflict, c.OnConflict, OnConflictAssignBack, OnConflictAutoRebase)
+	}
+
+	if err := ValidateMergeStrategy(c.MergeStrategy); err != nil {
+		return err
+	}
+	if err := ValidateVCSProvider(c.VCSProvider); err != nil {
+		return err
 	}
 
 	// Validate poll_interval if specified

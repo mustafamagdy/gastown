@@ -268,6 +268,33 @@ Registration is cheap: a bare clone shared through local git objects.
    repo, in dependency order, and they land as a set. A rejected PR holds the
    others.
 
+### PR layer
+
+`internal/vcs` is the pull request layer the project landing coordinator calls
+to land an integration branch, one PR per repo. It is separate from the
+refinery's `PRProvider` (a merge-queue abstraction with no create or checks
+operation, whose Go callers are not used in production; the refinery formula
+calls `gh` directly).
+
+- `vcs.Provider`: `CreatePR` (idempotent: an open head to base PR is returned),
+  `FindPR`, `GetPR`, `Checks` (pending, passing, failing, none), `ReviewState`
+  (approved, pending, rejected) and `Merge` (squash or merge, optional
+  `ExpectHead`). A `PR` carries its base ref so callers verify the target.
+- GitHub uses `gh ... --json` (`--match-head-commit` for the head guard).
+- Azure DevOps uses `az repos pr ... --output json`. Organization, project and
+  repository come from the git remote (`dev.azure.com`, `ssh.dev.azure.com`,
+  legacy `visualstudio.com`). Reviewer votes of 10 or more mean approved, -10
+  or less rejected. Completion is asynchronous, so `Merge` polls
+  `az repos pr show` until the PR is completed, within a timeout, and reads the
+  merge commit from `lastMergeCommit`.
+- `vcs.ForRemote(url)` detects the provider; `vcs.New("github"|"azure")` picks
+  one. Bitbucket returns an unsupported error.
+- Project settings `merge_strategy` (pr by default), `vcs_provider` (detected
+  from the remote when empty) and `require_review` (true by default) are read
+  with `config.ProjectLandSettings`.
+- Commands use exec args, never a shell, and no credentials are read, passed or
+  logged: auth is whatever `gh auth` or `az login` holds.
+
 ## Review gate (lavish)
 
 `lavish-axi` opens an agent's HTML page in the browser, the human annotates it,
