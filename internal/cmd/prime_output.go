@@ -110,11 +110,20 @@ func roleProjectContext(ctx RoleContext) (project string, siblings []string, pre
 			}
 		}
 	}
+	if len(siblings) > maxPrimeProjectRigs {
+		more := len(siblings) - maxPrimeProjectRigs
+		siblings = append(siblings[:maxPrimeProjectRigs:maxPrimeProjectRigs],
+			fmt.Sprintf("and %d more (gt project show %s)", more, project))
+	}
 	if cfg, err := config.LoadProjectConfig(ctx.TownRoot, project); err == nil {
 		prefix = cfg.Prefix
 	}
 	return project, siblings, prefix
 }
+
+// maxPrimeProjectRigs caps the sibling repos named in prime: a large project
+// (100+ repos) would otherwise flood every agent's context.
+const maxPrimeProjectRigs = 12
 
 func roleRigContext(ctx RoleContext) (defaultBranch string, isForkRig bool, upstreamURL string) {
 	defaultBranch = "main"

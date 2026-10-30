@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -222,5 +223,28 @@ func TestOutputRoleDirectives_ProjectTier(t *testing.T) {
 	out := buf.String()
 	if !strings.Contains(out, "project xelta") || !strings.Contains(out, "Use the shared API client.") {
 		t.Errorf("expected project directive and header, got: %s", out)
+	}
+}
+
+func TestRoleProjectContext_CapsSiblings(t *testing.T) {
+	t.Parallel()
+	townRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(townRoot, "mayor"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	var rigs []string
+	for i := 0; i < 20; i++ {
+		rigs = append(rigs, fmt.Sprintf(`"svc%02d":{"git_url":"u","project":"big"}`, i))
+	}
+	reg := `{"version":1,"rigs":{` + strings.Join(rigs, ",") + `}}`
+	if err := os.WriteFile(filepath.Join(townRoot, "mayor", "rigs.json"), []byte(reg), 0644); err != nil {
+		t.Fatal(err)
+	}
+	project, siblings, _ := roleProjectContext(RoleContext{TownRoot: townRoot, Rig: "svc00"})
+	if project != "big" || len(siblings) != maxPrimeProjectRigs+1 {
+		t.Fatalf("project=%q siblings=%d %v", project, len(siblings), siblings)
+	}
+	if last := siblings[len(siblings)-1]; last != "and 7 more (gt project show big)" {
+		t.Errorf("last sibling = %q", last)
 	}
 }
