@@ -10,6 +10,18 @@ TOOLS=(beads dolt)
 
 log() { echo "[tool-updater] $*"; }
 
+# --- Require Homebrew ---------------------------------------------------------
+# Without brew every check below fails silently and the plugin would falsely
+# report the tools as current. Skip instead (e.g. Linux hosts with bd/dolt in
+# ~/.local/bin).
+
+if ! command -v brew >/dev/null 2>&1; then
+  log "brew not found on PATH; bd/dolt are not Homebrew-managed here. Skipping."
+  gt plugin record-run --plugin tool-updater --result skipped \
+    --title "tool-updater: skipped, brew not available (beads=$(bd version 2>/dev/null | awk '{print $3}'), dolt=$(dolt version 2>/dev/null | awk '{print $3}'))" >/dev/null 2>&1 || true
+  exit 0
+fi
+
 # --- Refresh Homebrew formula index ------------------------------------------
 
 log "Running brew update..."
