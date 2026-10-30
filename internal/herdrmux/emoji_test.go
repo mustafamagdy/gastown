@@ -5,32 +5,41 @@ package herdrmux
 import (
 	"reflect"
 	"testing"
-
-	"github.com/steveyegge/gastown/internal/constants"
 )
 
-// The local table must track internal/constants for the roles the web
-// dashboard has no icon for.
-func TestRoleEmojiMatchesConstants(t *testing.T) {
-	for role, want := range map[string]string{
-		"deacon":   constants.EmojiDeacon,
-		"witness":  constants.EmojiWitness,
-		"refinery": constants.EmojiRefinery,
-		"boot":     constants.EmojiBoot,
-	} {
-		if roleEmoji[role] != want {
-			t.Errorf("roleEmoji[%q] = %q, constants has %q", role, roleEmoji[role], want)
+// Every role emoji must be one codepoint with no variation selector, so it
+// renders at a stable width in terminal tab bars.
+func TestRoleEmojiSingleCodepoint(t *testing.T) {
+	for role, e := range roleEmoji {
+		if n := len([]rune(e)); n != 1 {
+			t.Errorf("roleEmoji[%q] = %q has %d runes, want 1", role, e, n)
+		}
+	}
+	if n := len([]rune(rigEmoji)); n != 1 {
+		t.Errorf("rigEmoji = %q has %d runes, want 1", rigEmoji, n)
+	}
+}
+
+func TestGroupLabelMatchesOtherEmoji(t *testing.T) {
+	for _, have := range []string{"demo", "📦 demo", "📦 demo"} {
+		if !groupLabelMatches(have, "demo") {
+			t.Errorf("groupLabelMatches(%q, demo) = false", have)
+		}
+	}
+	for _, have := range []string{"demox", "📦 demox", " demo", "a b demo"} {
+		if groupLabelMatches(have, "demo") {
+			t.Errorf("groupLabelMatches(%q, demo) = true", have)
 		}
 	}
 }
 
 func TestDisplayLabel(t *testing.T) {
 	cases := []struct{ role, label, want string }{
-		{"mayor", "mayor", "🎩 mayor"},
-		{"dog", "dog-alpha", "🐕 dog-alpha"},
-		{"witness", "witness", "🦉 witness"},
-		{"crew", "crew-max", "👨‍💼 crew-max"},
-		{"polecat", "rust", "🦨 rust"},
+		{"mayor", "mayor", "👑 mayor"},
+		{"dog", "dog-alpha", "🐶 dog-alpha"},
+		{"witness", "witness", "👀 witness"},
+		{"crew", "crew-max", "👷 crew-max"},
+		{"polecat", "rust", "🐱 rust"},
 		{"", "weird", "weird"},
 		{"overseer", "x", "x"},
 	}
@@ -39,7 +48,7 @@ func TestDisplayLabel(t *testing.T) {
 			t.Errorf("DisplayLabel(%q,%q) = %q, want %q", c.role, c.label, got, c.want)
 		}
 	}
-	if GroupLabel("hq") != "hq" || GroupLabel("tododemo") != "🏗️ tododemo" {
+	if GroupLabel("hq") != "hq" || GroupLabel("tododemo") != "📦 tododemo" {
 		t.Errorf("GroupLabel: %q %q", GroupLabel("hq"), GroupLabel("tododemo"))
 	}
 	t.Setenv("GT_HERDR_EMOJI", "0")
@@ -70,10 +79,10 @@ func TestLegacyGroupLabelReusedAndRenamed(t *testing.T) {
 	}
 	t.Setenv("GT_HERDR_EMOJI", "1")
 	mustRun(t, run, append([]string{"new-session", "-d", "-s", "to-refinery", "-e", "GT_ROLE=demo/refinery"}, rigEnv...)...)
-	if got := f.wsLabels(); !reflect.DeepEqual(got, []string{"🏗️ demo"}) {
+	if got := f.wsLabels(); !reflect.DeepEqual(got, []string{"📦 demo"}) {
 		t.Fatalf("workspaces after reuse = %v (want one, renamed)", got)
 	}
-	if got := f.tabLabels("🏗️ demo"); !reflect.DeepEqual(got, []string{"witness", "🏭 refinery"}) {
+	if got := f.tabLabels("📦 demo"); !reflect.DeepEqual(got, []string{"witness", "🔀 refinery"}) {
 		t.Errorf("tabs = %v", got)
 	}
 }
@@ -82,7 +91,7 @@ func TestRenameKeepsEmojiAndWindowNamePlain(t *testing.T) {
 	f, run := newFake(t, "gt-e2")
 	mustRun(t, run, "new-session", "-d", "-s", "hq-mayor", "-e", "GT_ROLE=mayor")
 	mustRun(t, run, "rename-session", "-t", "hq-mayor", "hq-boss")
-	if got := f.tabLabels("hq"); !reflect.DeepEqual(got, []string{"🎩 boss"}) {
+	if got := f.tabLabels("hq"); !reflect.DeepEqual(got, []string{"👑 boss"}) {
 		t.Errorf("tab after rename = %v", got)
 	}
 	if got := mustRun(t, run, "display-message", "-p", "-t", "hq-boss", "#{window_name}"); got != "boss\n" {

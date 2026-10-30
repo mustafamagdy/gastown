@@ -585,14 +585,14 @@ func TestHerdrE2E(t *testing.T) {
 		if len(w) != 3 {
 			t.Fatalf("workspaces = %v, want hq, demo and the polecat worktree", w)
 		}
-		if got := tabLabels(w["hq"].ID); len(got) != 1 || got[0] != "🎩 mayor" {
-			t.Errorf("hq tabs = %v, want [🎩 mayor]", got)
+		if got := tabLabels(w["hq"].ID); len(got) != 1 || got[0] != "👑 mayor" {
+			t.Errorf("hq tabs = %v, want [👑 mayor]", got)
 		}
-		if got := tabLabels(w["🏗️ demo"].ID); len(got) != 1 || got[0] != "🦉 witness" {
-			t.Errorf("demo tabs = %v, want [🦉 witness]", got)
+		if got := tabLabels(w["📦 demo"].ID); len(got) != 1 || got[0] != "👀 witness" {
+			t.Errorf("demo tabs = %v, want [👀 witness]", got)
 		}
-		if a, ok := w["🦨 alpha"]; !ok || a.WT == nil || !a.WT.Linked {
-			t.Errorf("polecat workspace = %+v, want a linked worktree workspace labelled 🦨 alpha", a)
+		if a, ok := w["🐱 alpha"]; !ok || a.WT == nil || !a.WT.Linked {
+			t.Errorf("polecat workspace = %+v, want a linked worktree workspace labelled 🐱 alpha", a)
 		}
 		names, err := tm.ListSessions()
 		if err != nil || len(names) != 3 {
@@ -605,22 +605,22 @@ func TestHerdrE2E(t *testing.T) {
 		if len(w) != 3 {
 			t.Errorf("workspaces after dog = %d, want 3", len(w))
 		}
-		if got := tabLabels(w["hq"].ID); len(got) != 2 || got[1] != "🐕 dog-alpha" {
-			t.Errorf("hq tabs = %v, want [🎩 mayor 🐕 dog-alpha]", got)
+		if got := tabLabels(w["hq"].ID); len(got) != 2 || got[1] != "🐶 dog-alpha" {
+			t.Errorf("hq tabs = %v, want [👑 mayor 🐶 dog-alpha]", got)
 		}
 
 		// Killing a session closes only its own tab / workspace.
 		if err := tm.KillSession("hq-dog-alpha"); err != nil {
 			t.Fatal(err)
 		}
-		if got := tabLabels(listWS()["hq"].ID); len(got) != 1 || got[0] != "🎩 mayor" {
+		if got := tabLabels(listWS()["hq"].ID); len(got) != 1 || got[0] != "👑 mayor" {
 			t.Errorf("hq tabs after dog kill = %v", got)
 		}
 		if err := tm.KillSession("to-alpha"); err != nil {
 			t.Fatal(err)
 		}
 		w = listWS()
-		if _, ok := w["🦨 alpha"]; ok || len(w) != 2 {
+		if _, ok := w["🐱 alpha"]; ok || len(w) != 2 {
 			t.Errorf("workspaces after polecat kill = %v", w)
 		}
 		if _, err := os.Stat(pcDir); err != nil {

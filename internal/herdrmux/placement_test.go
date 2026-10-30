@@ -112,11 +112,11 @@ func TestGroupReuseAndKillOnlyTab(t *testing.T) {
 	f, run := newFake(t, "gt-p1")
 	mustRun(t, run, "new-session", "-d", "-s", "hq-mayor", "-e", "GT_ROLE=mayor")
 	// First session reuses the group's root shell tab.
-	if got := f.tabLabels("hq"); !reflect.DeepEqual(got, []string{"🎩 mayor"}) {
+	if got := f.tabLabels("hq"); !reflect.DeepEqual(got, []string{"👑 mayor"}) {
 		t.Fatalf("tabs after first = %v", got)
 	}
 	mustRun(t, run, "new-session", "-d", "-s", "hq-deacon", "-c", "/work", "-e", "GT_ROLE=deacon")
-	if got := f.tabLabels("hq"); !reflect.DeepEqual(got, []string{"🎩 mayor", "🐺 deacon"}) {
+	if got := f.tabLabels("hq"); !reflect.DeepEqual(got, []string{"👑 mayor", "🔔 deacon"}) {
 		t.Fatalf("tabs after second = %v", got)
 	}
 	if got := f.wsLabels(); !reflect.DeepEqual(got, []string{"hq"}) {
@@ -154,7 +154,7 @@ func TestGroupReuseAndKillOnlyTab(t *testing.T) {
 
 	// kill-session closes only that tab.
 	mustRun(t, run, "kill-session", "-t", "=hq-deacon")
-	if got := f.tabLabels("hq"); !reflect.DeepEqual(got, []string{"🎩 mayor"}) {
+	if got := f.tabLabels("hq"); !reflect.DeepEqual(got, []string{"👑 mayor"}) {
 		t.Errorf("tabs after kill = %v", got)
 	}
 	if len(f.herdrCalls("workspace close")) != 0 {
@@ -169,7 +169,7 @@ func TestGroupReuseAndKillOnlyTab(t *testing.T) {
 
 	// rename renames the tab
 	mustRun(t, run, "rename-session", "-t", "hq-mayor", "hq-boss")
-	if got := f.tabLabels("hq"); !reflect.DeepEqual(got, []string{"🎩 boss"}) {
+	if got := f.tabLabels("hq"); !reflect.DeepEqual(got, []string{"👑 boss"}) {
 		t.Errorf("tab after rename = %v", got)
 	}
 	if got := mustRun(t, run, "display-message", "-p", "-t", "hq-boss", "#{window_name}"); got != "boss\n" {
@@ -182,7 +182,7 @@ func TestGroupReuseAndKillOnlyTab(t *testing.T) {
 		t.Errorf("group should be gone: %v", f.wsLabels())
 	}
 	mustRun(t, run, "new-session", "-d", "-s", "hq-mayor", "-e", "GT_ROLE=mayor")
-	if got := f.tabLabels("hq"); !reflect.DeepEqual(got, []string{"🎩 mayor"}) {
+	if got := f.tabLabels("hq"); !reflect.DeepEqual(got, []string{"👑 mayor"}) {
 		t.Errorf("recreated group tabs = %v", got)
 	}
 }
@@ -214,10 +214,10 @@ func TestRigGroupsAndPolecatWorktree(t *testing.T) {
 	mustRun(t, run, append([]string{"new-session", "-d", "-s", "to-witness", "-e", "GT_ROLE=demo/witness"}, rigEnv...)...)
 	mustRun(t, run, append([]string{"new-session", "-d", "-s", "to-refinery", "-e", "GT_ROLE=demo/refinery"}, rigEnv...)...)
 	mustRun(t, run, "new-session", "-d", "-s", "hq-mayor", "-e", "GT_ROLE=mayor")
-	if got := f.wsLabels(); !reflect.DeepEqual(got, []string{"🏗️ demo", "hq"}) {
+	if got := f.wsLabels(); !reflect.DeepEqual(got, []string{"📦 demo", "hq"}) {
 		t.Fatalf("workspaces = %v", got)
 	}
-	if got := f.tabLabels("🏗️ demo"); !reflect.DeepEqual(got, []string{"🦉 witness", "🏭 refinery"}) {
+	if got := f.tabLabels("📦 demo"); !reflect.DeepEqual(got, []string{"👀 witness", "🔀 refinery"}) {
 		t.Errorf("rig tabs = %v", got)
 	}
 	creates := f.herdrCalls("workspace create")
@@ -230,10 +230,10 @@ func TestRigGroupsAndPolecatWorktree(t *testing.T) {
 		"-e", "GT_ROLE=demo/polecats/alpha", "-e", "GT_POLECAT=alpha"}, rigEnv...)...)
 	opens := f.herdrCalls("worktree open")
 	if len(opens) != 1 || flagVal(opens[0], "--workspace") != "w2" || flagVal(opens[0], "--path") != "/w/alpha" ||
-		flagVal(opens[0], "--label") != "🦨 alpha" || !strings.Contains(strings.Join(opens[0], " "), "--no-focus") {
+		flagVal(opens[0], "--label") != "🐱 alpha" || !strings.Contains(strings.Join(opens[0], " "), "--no-focus") {
 		t.Errorf("worktree open = %v", opens)
 	}
-	if got := f.wsLabels(); !reflect.DeepEqual(got, []string{"🏗️ demo", "hq", "🦨 alpha"}) {
+	if got := f.wsLabels(); !reflect.DeepEqual(got, []string{"📦 demo", "hq", "🐱 alpha"}) {
 		t.Errorf("workspaces = %v", got)
 	}
 	st, _ := f.store.Load("to-alpha")
@@ -251,17 +251,17 @@ func TestRigGroupsAndPolecatWorktree(t *testing.T) {
 	if st.Kind != KindTab || st.Label != "beta" {
 		t.Errorf("fallback state = %+v", st)
 	}
-	if got := f.tabLabels("🏗️ demo"); !reflect.DeepEqual(got, []string{"🦉 witness", "🏭 refinery", "🦨 beta"}) {
+	if got := f.tabLabels("📦 demo"); !reflect.DeepEqual(got, []string{"👀 witness", "🔀 refinery", "🐱 beta"}) {
 		t.Errorf("rig tabs = %v", got)
 	}
 
 	// Killing a worktree session closes its workspace only; a tab session only its tab.
 	mustRun(t, run, "kill-session", "-t", "=to-alpha")
-	if got := f.wsLabels(); !reflect.DeepEqual(got, []string{"🏗️ demo", "hq"}) {
+	if got := f.wsLabels(); !reflect.DeepEqual(got, []string{"📦 demo", "hq"}) {
 		t.Errorf("after polecat kill = %v", got)
 	}
 	mustRun(t, run, "kill-session", "-t", "=to-beta")
-	if got := f.tabLabels("🏗️ demo"); !reflect.DeepEqual(got, []string{"🦉 witness", "🏭 refinery"}) {
+	if got := f.tabLabels("📦 demo"); !reflect.DeepEqual(got, []string{"👀 witness", "🔀 refinery"}) {
 		t.Errorf("after tab kill = %v", got)
 	}
 	for _, c := range f.calls {
@@ -276,11 +276,11 @@ func TestPolecatFirstThenTabReusesRootTab(t *testing.T) {
 	f.worktrees["/w/alpha"] = true
 	mustRun(t, run, "new-session", "-d", "-s", "to-alpha", "-c", "/w/alpha", "-e", "GT_ROLE=demo/polecats/alpha", "-e", "GT_POLECAT=alpha")
 	// The rig workspace was created as parent; its idle shell tab is kept for the next tab session.
-	if got := f.tabLabels("🏗️ demo"); !reflect.DeepEqual(got, []string{"1"}) {
+	if got := f.tabLabels("📦 demo"); !reflect.DeepEqual(got, []string{"1"}) {
 		t.Fatalf("rig tabs = %v", got)
 	}
 	mustRun(t, run, "new-session", "-d", "-s", "to-witness", "-e", "GT_ROLE=demo/witness", "-e", "GT_RIG=demo")
-	if got := f.tabLabels("🏗️ demo"); !reflect.DeepEqual(got, []string{"🦉 witness"}) {
+	if got := f.tabLabels("📦 demo"); !reflect.DeepEqual(got, []string{"👀 witness"}) {
 		t.Errorf("rig tabs = %v", got)
 	}
 }
@@ -302,7 +302,7 @@ func TestSharedKillServerClosesOnlyTracked(t *testing.T) {
 		t.Errorf("hq tabs after kill-server = %v", got)
 	}
 	for _, w := range f.wsLabels() {
-		if w == "🦨 alpha" {
+		if w == "🐱 alpha" {
 			t.Error("polecat workspace should be closed")
 		}
 	}

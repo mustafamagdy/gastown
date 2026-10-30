@@ -7,26 +7,26 @@ import (
 	"strings"
 )
 
-// roleEmoji decorates herdr tab / worktree-workspace labels. It is a local
-// table (herdrmux imports no other gastown package). Sources:
-//   - mayor, polecat, crew, dog: the web dashboard, internal/web/templates/convoy.html
-//   - deacon, witness, refinery, boot: internal/constants (EmojiDeacon, ...),
-//     because the dashboard has no icon for them; a test keeps them in sync.
+// roleEmoji decorates herdr tab / worktree-workspace labels. Every entry is a
+// single codepoint with default emoji presentation (no ZWJ sequences, no
+// U+FE0F variation selector, Unicode <= 9) so terminals render it at a
+// predictable two-cell width; the dashboard's richer icons (👨‍💼, 🏗️, 🦨)
+// misrender or drift column widths in terminal tab bars.
 //
 // Unknown roles get no emoji.
 var roleEmoji = map[string]string{
-	"mayor":    "🎩",
-	"polecat":  "🦨",
-	"crew":     "👨‍💼", // ZWJ sequence
-	"dog":      "🐕",
-	"deacon":   "🐺",
-	"witness":  "🦉",
-	"refinery": "🏭",
-	"boot":     "🐾",
+	"mayor":    "👑",
+	"deacon":   "🔔",
+	"boot":     "👢",
+	"dog":      "🐶",
+	"witness":  "👀",
+	"refinery": "🔀",
+	"polecat":  "🐱",
+	"crew":     "👷",
 }
 
-// rigEmoji prefixes per-rig group workspace labels (dashboard "Rigs").
-const rigEmoji = "🏗️"
+// rigEmoji prefixes per-rig group workspace labels.
+const rigEmoji = "📦"
 
 // emojiEnabled is false when GT_HERDR_EMOJI=0 (or false/off/no).
 func emojiEnabled() bool {
@@ -58,8 +58,13 @@ func GroupLabel(group string) string {
 	return decorate(rigEmoji, group)
 }
 
-// groupLabelMatches reports whether a workspace label is the group's decorated
-// label or its legacy undecorated form.
+// groupLabelMatches reports whether a workspace label is the group's label,
+// either plain or "<emoji> group" with any single-token prefix, so workspaces
+// labelled by builds with a different emoji are still reused (and relabelled).
 func groupLabelMatches(have, group string) bool {
-	return have == group || have == GroupLabel(group)
+	if have == group {
+		return true
+	}
+	i := strings.IndexByte(have, ' ')
+	return i > 0 && have[i+1:] == group
 }
