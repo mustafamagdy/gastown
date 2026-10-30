@@ -43,7 +43,7 @@ TOWN (org)                      ~/work/<org>/gt, own Dolt port, own herdr sessio
 └─ PROJECT                      projects/<name>/project.json
    ├─ project beads             own prefix; features (epics) spanning rigs
    ├─ project brain             brief, service map, agent-brain memory folder
-   ├─ witness + refinery        ONE pair per project
+   ├─ witness + refinery        per rig, running only while the rig has work
    └─ RIGS (repos)              started on demand
       └─ polecats / crew        own worktree writable, neighbours read-only
 ```
@@ -74,17 +74,22 @@ member rig get `GT_PROJECT`.
 
 ```json
 {
+  "type": "project",
+  "version": 1,
   "name": "xelta",
   "prefix": "xe",
-  "rigs": ["xelta-api", "billing-svc", "web"],
+  "description": "Xelta B2B platform",
   "docs": "~/work/mbg/xelta/docs",
   "memory": "mbg/xelta",
-  "default_branch": "main",
-  "merge_strategy": "pr",
-  "vcs_provider": "azure",
-  "require_visual_review": true
+  "on_demand": true
 }
 ```
+
+Planned for later phases: project-level `merge_strategy`, `vcs_provider` and
+`require_visual_review` defaults.
+
+Rig names cannot contain hyphens, dots or spaces (session names are parsed on
+`-`), so a repo `orders-svc` becomes the rig `orders_svc`.
 
 Rig-level settings still override project-level ones.
 
@@ -95,16 +100,16 @@ there; their child tasks live in the rig databases and depend on the epic.
 Convoys stay in HQ beads and can track children across rigs (upstream
 behaviour).
 
-### One witness and one refinery per project
+### Witness and refinery: per rig, on demand
 
 Upstream runs a witness and a refinery per rig. With 120 rigs that is 240
-always-on agents. In this fork:
-
-- the project witness watches the polecats of every rig in the project;
-- the project refinery is one merge queue for the project, which is what makes
-  ordered, linked landing of multi-repo features possible;
-- a rig's own witness/refinery is not started when the rig belongs to a
-  multi-rig project.
+always-on agents. The first design merged them into one pair per project, but
+about 60 call sites assume one witness and one refinery per rig (session names,
+mail addresses, agent beads, daemon maps). The fork instead keeps them per rig
+and runs them only while the rig has work (next section), which gives the same
+cost with no changes to those call sites. Ordered, linked landing of
+multi-repo features (phase 4) is a project-level coordinator on top of the
+per-rig refineries, not a replacement for them.
 
 ### Rigs on demand
 
@@ -222,17 +227,21 @@ Beads is the only working tracker inside gt.
 ```
 herdr session "<org>"
 ├─ hq          mayor, deacon, dogs
-├─ <project>   witness, refinery, crew tabs
-│   └─ polecat worktree workspaces, labelled "<name> (<repo>)"
-└─ <project>   ...
+├─ <project>   one tab per running agent of any rig in the project:
+│              "👀 orders_svc", "🔀 orders_svc", "🐱 furiosa@orders_svc"
+└─ <rig>       a rig outside any project: its tabs, with polecats as
+               linked worktree workspaces nested under it
 ```
+
+herdr links a worktree workspace only to a workspace of the same repo, so in
+a project (many repos) polecats are tabs, not nested worktree workspaces.
 
 ## Build phases
 
 | # | Phase | Status |
 |---|---|---|
 | 0 | Fork host setup in `contrib/fork-host`, this document | done |
-| 1 | Project layer: config, project beads, one witness/refinery per project, rigs on demand, herdr grouping | in progress |
+| 1 | Project layer: config, `gt project`, project beads, prime context, rigs on demand, herdr grouping | done (tested on the `contrib/project-demo` shop project) |
 | 2 | Org identity in agents, per-town AXI tool list, `gt doctor` checks | planned |
 | 3 | Project brain: brief, service map, read-only neighbours | planned |
 | 4 | Multi-repo features: same-name integration branches, ordered linked PRs, Azure DevOps PR provider | planned |
