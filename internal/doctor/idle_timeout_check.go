@@ -45,6 +45,9 @@ func (c *IdleTimeoutCheck) Run(ctx *CheckContext) *CheckResult {
 	// Build unique rig list from routes
 	rigSet := make(map[string]string) // rigName -> beadsPath
 	for _, r := range routes {
+		if beads.IsProjectRoute(r) {
+			continue // project stores are not rigs
+		}
 		parts := strings.Split(r.Path, "/")
 		if len(parts) >= 1 && parts[0] != "." {
 			rigName := parts[0]
@@ -118,6 +121,9 @@ func (c *IdleTimeoutCheck) Fix(ctx *CheckContext) error {
 	// Build unique rig list from routes
 	rigSet := make(map[string]string) // rigName -> beadsPath
 	for _, r := range routes {
+		if beads.IsProjectRoute(r) {
+			continue // project stores are not rigs
+		}
 		parts := strings.Split(r.Path, "/")
 		if len(parts) >= 1 && parts[0] != "." {
 			rigName := parts[0]

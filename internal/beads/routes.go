@@ -19,6 +19,54 @@ type Route struct {
 	Path   string `json:"path"`   // Relative path to .beads directory from town root
 }
 
+// ProjectRoutePrefix is the town-relative directory under which project
+// beads stores live ("projects/<name>").
+const ProjectRoutePrefix = "projects/"
+
+// IsProjectRoute reports whether a route points at a project beads store
+// (path "projects/<name>" or deeper).
+//
+// Project routes hold project-level beads (features that span rigs). They are
+// NOT rigs: the first path component ("projects") is not a rig name, and
+// nothing rig-shaped (witness, refinery, agent beads, rig identity bead,
+// polecat dispatch) may be derived from them. Code that enumerates rigs from
+// routes must skip project routes. Code that only needs to locate the beads
+// store for an ID prefix (bd routing, convoy lookup, show/mail) should keep
+// resolving them like any other route.
+func IsProjectRoute(r Route) bool {
+	return isProjectPath(r.Path)
+}
+
+func isProjectPath(p string) bool {
+	p = filepath.ToSlash(filepath.Clean(p))
+	return strings.HasPrefix(p, ProjectRoutePrefix) && len(p) > len(ProjectRoutePrefix)
+}
+
+// ProjectNameForRoute returns the project name for a project route
+// ("projects/shop" -> "shop"), or "" if the route is not a project route.
+func ProjectNameForRoute(r Route) string {
+	if !IsProjectRoute(r) {
+		return ""
+	}
+	p := filepath.ToSlash(filepath.Clean(r.Path))
+	return strings.SplitN(strings.TrimPrefix(p, ProjectRoutePrefix), "/", 2)[0]
+}
+
+// GetProjectNameForPrefix returns the project name owning a bead prefix
+// (e.g. "sh-" -> "shop"), or "" if the prefix is not routed to a project.
+func GetProjectNameForPrefix(townRoot, prefix string) string {
+	routes, err := LoadRoutes(filepath.Join(townRoot, ".beads"))
+	if err != nil {
+		return ""
+	}
+	for _, r := range routes {
+		if r.Prefix == prefix {
+			return ProjectNameForRoute(r)
+		}
+	}
+	return ""
+}
+
 // RoutesFileName is the name of the routes configuration file.
 const RoutesFileName = "routes.jsonl"
 
@@ -183,6 +231,9 @@ func GetPrefixForRig(townRoot, rigName string) string {
 	// Look for a route where the path starts with the rig name
 	// Routes paths are like "gastown/mayor/rig" or "beads/mayor/rig"
 	for _, r := range routes {
+		if IsProjectRoute(r) {
+			continue
+		}
 		parts := strings.SplitN(r.Path, "/", 2)
 		if len(parts) > 0 && parts[0] == rigName {
 			// Return prefix without trailing hyphen
@@ -296,8 +347,8 @@ func GetRigDirForName(townRoot, rigName string) string {
 		return ""
 	}
 	for _, r := range routes {
-		if r.Path == "." {
-			continue // town-level, not a specific rig dir
+		if r.Path == "." || IsProjectRoute(r) {
+			continue // town-level or project store, not a specific rig dir
 		}
 		parts := strings.SplitN(r.Path, "/", 2)
 		if len(parts) > 0 && parts[0] == rigName {
@@ -452,7 +503,8 @@ func pathWithin(root, path string) bool {
 
 // GetRigNameForPrefix returns the rig name that owns a given bead prefix.
 // For example, "gt-" returns "gastown", "bd-" returns "beads".
-// Returns empty string if the prefix is town-level (path=".") or not found in routes.
+// Returns empty string if the prefix is town-level (path="."), project-level
+// (see IsProjectRoute), or not found in routes.
 func GetRigNameForPrefix(townRoot, prefix string) string {
 	beadsDir := filepath.Join(townRoot, ".beads")
 	routes, err := LoadRoutes(beadsDir)
@@ -462,8 +514,8 @@ func GetRigNameForPrefix(townRoot, prefix string) string {
 
 	for _, r := range routes {
 		if r.Prefix == prefix {
-			if r.Path == "." {
-				return "" // Town-level bead, no specific rig
+			if r.Path == "." || IsProjectRoute(r) {
+				return "" // Town-level or project bead, no specific rig
 			}
 			parts := strings.SplitN(r.Path, "/", 2)
 			if len(parts) > 0 {

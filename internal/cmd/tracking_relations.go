@@ -92,7 +92,8 @@ func trackingDependsOnID(townRoot, issueID string) string {
 		return issueID
 	}
 
-	if rigName := beads.GetRigNameForPrefix(townRoot, prefix); rigName != "" {
+	if rigName := beads.GetRigNameForPrefix(townRoot, prefix); rigName != "" ||
+		beads.GetProjectNameForPrefix(townRoot, prefix) != "" {
 		return fmt.Sprintf("external:%s:%s", strings.TrimSuffix(prefix, "-"), issueID)
 	}
 

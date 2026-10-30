@@ -279,6 +279,15 @@ func allBeadIDs(args []string) bool {
 	return len(args) > 0
 }
 
+// projectBeadNeedsRigError explains that a bead belongs to a project (not a
+// rig), so there is no rig to infer and the caller must name one.
+func projectBeadNeedsRigError(beadID, prefix, project string, beadIDs []string) error {
+	return fmt.Errorf("cannot resolve rig for %s: prefix %q belongs to project %q, not a rig\n\n"+
+		"  Project beads span rigs, so the target rig must be explicit:\n"+
+		"         gt sling %s <rig>\n",
+		beadID, prefix, project, strings.Join(beadIDs, " "))
+}
+
 // resolveRigFromBeadIDs resolves the target rig from bead prefixes.
 // All beads must resolve to the same rig. Returns an error with suggested
 // actions if any prefix cannot be resolved or if beads span multiple rigs.
@@ -300,6 +309,9 @@ func resolveRigFromBeadIDs(beadIDs []string, townRoot string) (string, error) {
 
 		rigName := beads.GetRigNameForPrefix(townRoot, prefix)
 		if rigName == "" {
+			if project := beads.GetProjectNameForPrefix(townRoot, prefix); project != "" {
+				return "", projectBeadNeedsRigError(beadID, prefix, project, beadIDs)
+			}
 			return "", fmt.Errorf("cannot resolve rig for %s: prefix %q is not mapped to any rig\n\n"+
 				"  The prefix may belong to a town-level bead or the routes are not configured.\n\n"+
 				"  Options:\n"+

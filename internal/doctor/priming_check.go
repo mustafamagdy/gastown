@@ -199,6 +199,15 @@ func (c *PrimingCheck) checkRigPriming(townRoot string) []primingIssue {
 		return issues
 	}
 
+	// A top-level directory named after a project is never a rig (projects
+	// live under projects/<name>); don't demand rig priming files for it.
+	projectNames := make(map[string]bool)
+	if projects, err := config.ListProjects(townRoot); err == nil {
+		for _, name := range projects {
+			projectNames[name] = true
+		}
+	}
+
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
@@ -206,6 +215,9 @@ func (c *PrimingCheck) checkRigPriming(townRoot string) []primingIssue {
 
 		rigName := entry.Name()
 		rigPath := filepath.Join(townRoot, rigName)
+		if projectNames[rigName] {
+			continue
+		}
 
 		// Skip non-rig directories
 		if rigName == "mayor" || rigName == "deacon" || rigName == "daemon" ||

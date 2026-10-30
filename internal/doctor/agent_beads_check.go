@@ -59,6 +59,9 @@ func (c *AgentBeadsCheck) Run(ctx *CheckContext) *CheckResult {
 	// Routes have format: prefix "gt-" -> path "gastown/mayor/rig" or "my-saas"
 	prefixToRig := make(map[string]rigInfo) // prefix (without hyphen) -> rigInfo
 	for _, r := range routes {
+		if beads.IsProjectRoute(r) {
+			continue // project stores are not rigs
+		}
 		// Extract rig name from path (first component)
 		parts := strings.Split(r.Path, "/")
 		if len(parts) >= 1 && parts[0] != "." {
@@ -339,6 +342,9 @@ func (c *AgentBeadsCheck) Fix(ctx *CheckContext) error {
 	// Build prefix -> rigInfo map from routes
 	prefixToRig := make(map[string]rigInfo)
 	for _, r := range routes {
+		if beads.IsProjectRoute(r) {
+			continue // project stores are not rigs
+		}
 		parts := strings.Split(r.Path, "/")
 		if len(parts) >= 1 && parts[0] != "." {
 			rigName := parts[0]

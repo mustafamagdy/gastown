@@ -728,3 +728,78 @@ func TestValidateRigPrefix(t *testing.T) {
 		})
 	}
 }
+
+func TestIsProjectRoute(t *testing.T) {
+	tests := []struct {
+		path        string
+		wantProject bool
+		wantName    string
+	}{
+		{"projects/shop", true, "shop"},
+		{"projects/shop/", true, "shop"},
+		{"projects/shop/.beads", true, "shop"},
+		{"projects", false, ""},
+		{"projects/", false, ""},
+		{".", false, ""},
+		{"gastown/mayor/rig", false, ""},
+		{"myprojects/shop", false, ""},
+		{"gastown/projects/shop", false, ""},
+	}
+	for _, tt := range tests {
+		r := Route{Prefix: "sh-", Path: tt.path}
+		if got := IsProjectRoute(r); got != tt.wantProject {
+			t.Errorf("IsProjectRoute(%q) = %v, want %v", tt.path, got, tt.wantProject)
+		}
+		if got := ProjectNameForRoute(r); got != tt.wantName {
+			t.Errorf("ProjectNameForRoute(%q) = %q, want %q", tt.path, got, tt.wantName)
+		}
+	}
+}
+
+func writeProjectRoutesFixture(t *testing.T) string {
+	t.Helper()
+	townRoot := t.TempDir()
+	beadsDir := filepath.Join(townRoot, ".beads")
+	if err := os.MkdirAll(beadsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	routes := `{"prefix":"hq-","path":"."}
+{"prefix":"gt-","path":"gastown/mayor/rig"}
+{"prefix":"sh-","path":"projects/shop"}
+`
+	if err := os.WriteFile(filepath.Join(beadsDir, "routes.jsonl"), []byte(routes), 0644); err != nil {
+		t.Fatal(err)
+	}
+	return townRoot
+}
+
+func TestRouteHelpers_ProjectRouteIsNotARig(t *testing.T) {
+	townRoot := writeProjectRoutesFixture(t)
+
+	if got := GetRigNameForPrefix(townRoot, "sh-"); got != "" {
+		t.Errorf("GetRigNameForPrefix(sh-) = %q, want empty", got)
+	}
+	if got := GetRigNameForPrefix(townRoot, "gt-"); got != "gastown" {
+		t.Errorf("GetRigNameForPrefix(gt-) = %q, want gastown", got)
+	}
+	if got := GetProjectNameForPrefix(townRoot, "sh-"); got != "shop" {
+		t.Errorf("GetProjectNameForPrefix(sh-) = %q, want shop", got)
+	}
+	if got := GetProjectNameForPrefix(townRoot, "gt-"); got != "" {
+		t.Errorf("GetProjectNameForPrefix(gt-) = %q, want empty", got)
+	}
+	if got := GetRigDirForName(townRoot, "projects"); got != "" {
+		t.Errorf("GetRigDirForName(projects) = %q, want empty", got)
+	}
+	// "projects" must not resolve to the project route's prefix.
+	if got := GetPrefixForRig(townRoot, "projects"); got == "sh" {
+		t.Errorf("GetPrefixForRig(projects) = %q, must not use project route", got)
+	}
+	// Project beads stay resolvable to their store.
+	if got, want := GetRigPathForPrefix(townRoot, "sh-"), filepath.Join(townRoot, "projects", "shop"); got != want {
+		t.Errorf("GetRigPathForPrefix(sh-) = %q, want %q", got, want)
+	}
+	if got, want := ResolveHookDir(townRoot, "sh-abc", ""), filepath.Join(townRoot, "projects", "shop"); got != want {
+		t.Errorf("ResolveHookDir(sh-abc) = %q, want %q", got, want)
+	}
+}

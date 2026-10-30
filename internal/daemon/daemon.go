@@ -25,6 +25,7 @@ import (
 	"github.com/steveyegge/gastown/internal/boot"
 	agentconfig "github.com/steveyegge/gastown/internal/config"
 	"github.com/steveyegge/gastown/internal/constants"
+	"github.com/steveyegge/gastown/internal/convoy"
 	"github.com/steveyegge/gastown/internal/deacon"
 	"github.com/steveyegge/gastown/internal/deps"
 	"github.com/steveyegge/gastown/internal/doltserver"
@@ -2136,6 +2137,23 @@ func (d *Daemon) openBeadsStores() (map[string]beadsdk.Storage, error) {
 			continue
 		}
 		stores[rigName] = store
+	}
+
+	// Per-project stores. Projects are not rigs, but convoys may track
+	// project-level beads, so their stores must be resolvable by prefix.
+	if projects, err := agentconfig.ListProjects(d.config.TownRoot); err == nil {
+		for _, project := range projects {
+			beadsDir := beads.ResolveBeadsDir(agentconfig.ProjectDir(d.config.TownRoot, project))
+			if _, statErr := os.Stat(beadsDir); statErr != nil {
+				continue
+			}
+			store, err := beadsdk.OpenFromConfig(d.ctx, beadsDir)
+			if err != nil {
+				d.logger.Printf("Convoy: project %s beads store unavailable: %s", project, util.FirstLine(err.Error()))
+				continue
+			}
+			stores[convoy.ProjectStoreKey(project)] = store
+		}
 	}
 
 	if len(stores) == 0 {

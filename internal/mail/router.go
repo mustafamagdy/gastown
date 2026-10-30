@@ -716,6 +716,9 @@ func (r *Router) queryAgents(descContains string) []*agentBead {
 		routes, routeErr := beads.LoadRoutes(routesDir)
 		if routeErr == nil {
 			for _, route := range routes {
+				if beads.IsProjectRoute(route) {
+					continue // project stores hold no agents
+				}
 				// Skip hq- routes (town-level, already queried)
 				if strings.HasPrefix(route.Prefix, "hq-") {
 					continue
@@ -972,6 +975,9 @@ func (r *Router) validateRecipient(identity string) error {
 		if err == nil {
 			var queryErrors []string
 			for _, route := range routes {
+				if beads.IsProjectRoute(route) {
+					continue // project stores hold no agents
+				}
 				// Skip hq- routes (town-level, already queried)
 				if strings.HasPrefix(route.Prefix, "hq-") {
 					continue

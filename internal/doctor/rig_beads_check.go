@@ -50,6 +50,9 @@ func (c *RigBeadsCheck) Run(ctx *CheckContext) *CheckResult {
 		beadsPath string
 	})
 	for _, r := range routes {
+		if beads.IsProjectRoute(r) {
+			continue // project stores are not rigs
+		}
 		// Extract rig name from path (first component)
 		parts := strings.Split(r.Path, "/")
 		if len(parts) >= 1 && parts[0] != "." {
@@ -122,6 +125,9 @@ func (c *RigBeadsCheck) Fix(ctx *CheckContext) error {
 		beadsPath string
 	})
 	for _, r := range routes {
+		if beads.IsProjectRoute(r) {
+			continue // project stores are not rigs
+		}
 		parts := strings.Split(r.Path, "/")
 		if len(parts) >= 1 && parts[0] != "." {
 			rigName := parts[0]

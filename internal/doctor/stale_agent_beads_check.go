@@ -57,6 +57,12 @@ func (c *StaleAgentBeadsCheck) Run(ctx *CheckContext) *CheckResult {
 	prefixToRig := make(map[string]rigInfo)
 	knownPrefixes := make(map[string]bool) // all known prefixes including town-level
 	for _, r := range routes {
+		if beads.IsProjectRoute(r) {
+			// Project stores are not rigs: no rig agents live there, but the
+			// prefix is known.
+			knownPrefixes[strings.TrimSuffix(r.Prefix, "-")] = true
+			continue
+		}
 		parts := strings.Split(r.Path, "/")
 		if len(parts) >= 1 && parts[0] != "." {
 			rigName := parts[0]

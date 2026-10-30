@@ -414,6 +414,9 @@ func runSling(cmd *cobra.Command, args []string) (retErr error) {
 		}
 		rigName := resolveRigForBead(townRoot, slingOnTarget)
 		if rigName == "" {
+			if project := beads.GetProjectNameForPrefix(townRoot, beads.ExtractPrefix(slingOnTarget)); project != "" {
+				return fmt.Errorf("bead %s belongs to project %q, not a rig\nSpecify the rig explicitly: gt sling %s --on %s <rig>", slingOnTarget, project, args[0], slingOnTarget)
+			}
 			return fmt.Errorf("cannot resolve rig for bead %s\nSpecify explicitly: gt sling %s --on %s <rig>", slingOnTarget, args[0], slingOnTarget)
 		}
 		formulaName := args[0]
@@ -1166,6 +1169,12 @@ func checkCrossRigGuard(beadID, targetAgent, townRoot string) error {
 	}
 
 	beadRig := beads.GetRigNameForPrefix(townRoot, beadPrefix)
+
+	// Project beads (features spanning rigs) belong to no rig, so they may be
+	// slung to any explicitly named rig.
+	if beadRig == "" && beads.GetProjectNameForPrefix(townRoot, beadPrefix) != "" {
+		return nil
+	}
 
 	if beadRig != targetRig {
 		if beadRig == "" {

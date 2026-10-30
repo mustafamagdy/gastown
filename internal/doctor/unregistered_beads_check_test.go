@@ -3,6 +3,7 @@ package doctor
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -196,5 +197,28 @@ func writeBeadsMetadata(t *testing.T, dir string, doltDB string) {
 	content := `{"backend":"dolt","dolt_database":"` + doltDB + `","dolt_mode":"server"}`
 	if err := os.WriteFile(filepath.Join(beadsDir, "metadata.json"), []byte(content), 0644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestUnregisteredBeadsDirs_ProjectNamedStrayDir(t *testing.T) {
+	tmpDir := t.TempDir()
+	setupRigsJSON(t, tmpDir, []string{"myrig"})
+	writeBeadsMetadata(t, filepath.Join(tmpDir, "myrig"), "myrig")
+	// Real project store under projects/ is not a town-root directory: fine.
+	projDir := filepath.Join(tmpDir, "projects", "shop")
+	writeBeadsMetadata(t, projDir, "shop")
+	if err := os.WriteFile(filepath.Join(projDir, "project.json"), []byte(`{"name":"shop","prefix":"sh"}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	result := NewUnregisteredBeadsDirsCheck().Run(&CheckContext{TownRoot: tmpDir})
+	if result.Status != StatusOK {
+		t.Fatalf("project store under projects/ must not be flagged: %s %v", result.Message, result.Details)
+	}
+
+	// A stray shop/.beads at the town root is reported as a project shadow.
+	writeBeadsMetadata(t, filepath.Join(tmpDir, "shop"), "shop")
+	result = NewUnregisteredBeadsDirsCheck().Run(&CheckContext{TownRoot: tmpDir})
+	if len(result.Details) != 1 || !strings.Contains(result.Details[0], "project \"shop\" lives in projects/shop") {
+		t.Errorf("unexpected details: %v", result.Details)
 	}
 }

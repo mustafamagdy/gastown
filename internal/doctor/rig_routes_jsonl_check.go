@@ -141,6 +141,9 @@ func (c *RigRoutesJSONLCheck) findRigDirectories(townRoot string) []string {
 	townBeadsInfo, townBeadsErr := os.Stat(townBeadsDir)
 	if routes, err := beads.LoadRoutes(townBeadsDir); err == nil {
 		for _, route := range routes {
+			if beads.IsProjectRoute(route) {
+				continue // project stores are not rigs
+			}
 			if route.Path == "." || route.Path == "" {
 				continue // Skip town root
 			}

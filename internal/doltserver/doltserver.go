@@ -2829,6 +2829,9 @@ func issuePrefixForRigInit(townRoot, rigName string) string {
 	beadsDir := filepath.Join(townRoot, ".beads")
 	if routes, err := beads.LoadRoutes(beadsDir); err == nil {
 		for _, route := range routes {
+			if beads.IsProjectRoute(route) {
+				continue
+			}
 			parts := strings.SplitN(route.Path, string(filepath.Separator), 2)
 			if len(parts) == 0 || parts[0] != rigName {
 				parts = strings.SplitN(route.Path, "/", 2)
@@ -3264,8 +3267,12 @@ func CollectDatabaseOwners(townRoot string) map[string]string {
 			if db := readExistingDoltDatabase(beadsDir); db != "" {
 				if _, already := owners[db]; !already {
 					// Derive a name from the route path
-					parts := strings.Split(route.Path, "/")
-					owners[db] = parts[0] + " rig beads"
+					if name := beads.ProjectNameForRoute(beads.Route{Path: route.Path}); name != "" {
+						owners[db] = name + " project beads"
+					} else {
+						parts := strings.Split(route.Path, "/")
+						owners[db] = parts[0] + " rig beads"
+					}
 				}
 			}
 		}
@@ -3684,6 +3691,26 @@ func EnsureMetadataForBeadsDir(townRoot, beadsDir, rigName string, doltDatabase 
 	return nil
 }
 
+// projectDatabaseNames returns the set of Dolt database names that belong to
+// projects (projects/<name>/.beads), not to rigs. A project's database is
+// named after the project; the name recorded in its metadata.json is included
+// as well. Rig-named databases are never returned, so a rig and a project
+// that share a name keep the rig's database managed.
+func projectDatabaseNames(townRoot string) map[string]bool {
+	names := make(map[string]bool)
+	projects, err := configpkg.ListProjects(townRoot)
+	if err != nil {
+		return names
+	}
+	for _, project := range projects {
+		names[project] = true
+		if db := readExistingDoltDatabase(filepath.Join(configpkg.ProjectDir(townRoot, project), ".beads")); db != "" {
+			names[db] = true
+		}
+	}
+	return names
+}
+
 // buildRigPrefixMap reads rigs.json and returns a map from Dolt database name
 // (beads prefix without the trailing hyphen) to the rig directory name.
 // Example: {"be": "beads_el", "sw": "sooper_whisper"}.
@@ -3736,6 +3763,9 @@ func EnsureAllMetadata(townRoot string) (updated []string, errs []error) {
 	for k, v := range buildRigPrefixMap(townRoot) {
 		dbToRig[k] = v
 	}
+	// Project databases are not rigs: writing metadata for them would create a
+	// phantom <townRoot>/<project>/.beads directory.
+	projectDBs := projectDatabaseNames(townRoot)
 
 	// Group candidate database names by rig. When routes.jsonl and rigs.json
 	// use different prefixes for the same rig (e.g. "gas" vs "gt" both map to
@@ -3744,6 +3774,9 @@ func EnsureAllMetadata(townRoot string) (updated []string, errs []error) {
 	// dolt_database correction on every startup. (gas-ar0)
 	rigCandidates := make(map[string][]string) // rig -> candidate db names
 	for _, dbName := range databases {
+		if projectDBs[dbName] {
+			continue
+		}
 		rigName := dbName
 		if mapped, ok := dbToRig[dbName]; ok {
 			rigName = mapped
@@ -3808,6 +3841,9 @@ func buildDatabaseToRigMap(townRoot string) map[string]string {
 		return result // Return empty map on error
 	}
 	for _, route := range routes {
+		if beads.IsProjectRoute(route) {
+			continue // project stores are not rigs
+		}
 		// Extract rig name from path (first component before "/")
 		// e.g., "beads/mayor/rig" -> "beads", "gastown/mayor/rig" -> "gastown"
 		prefix := strings.TrimSuffix(route.Prefix, "-")

@@ -182,3 +182,25 @@ func TestStoreResolver_StoreForID_ExternalFormat(t *testing.T) {
 		t.Errorf("storeForID(external:ds:ds-abc) = %q, want %q", storeName, "dashboard")
 	}
 }
+
+func TestStoreResolver_StoreForID_ProjectPrefix(t *testing.T) {
+	townRoot := t.TempDir()
+	beadsDir := filepath.Join(townRoot, ".beads")
+	os.MkdirAll(beadsDir, 0755)
+	beadsRouting.WriteRoutes(beadsDir, []beadsRouting.Route{
+		{Prefix: "hq-", Path: "."},
+		{Prefix: "ds-", Path: "dashboard"},
+		{Prefix: "sh-", Path: "projects/shop"},
+	})
+
+	resolver := NewStoreResolver(townRoot, nil)
+	if got, want := resolver.storeForID("sh-abc"), ProjectStoreKey("shop"); got != want {
+		t.Errorf("storeForID(sh-abc) = %q, want %q", got, want)
+	}
+	if got := resolver.storeForID("ds-abc"); got != "dashboard" {
+		t.Errorf("storeForID(ds-abc) = %q, want dashboard", got)
+	}
+	if got := resolver.storeForID("hq-abc"); got != "hq" {
+		t.Errorf("storeForID(hq-abc) = %q, want hq", got)
+	}
+}

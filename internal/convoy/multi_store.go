@@ -109,10 +109,23 @@ func (r *StoreResolver) storeForID(id string) string {
 		return ""
 	}
 
-	rigName := beads.GetRigNameForPrefix(r.townRoot, prefix)
-	if rigName == "" {
-		// Town-level prefix (e.g., "hq-") or unknown → use hq store
-		return "hq"
+	return storeKeyForPrefix(r.townRoot, prefix)
+}
+
+// ProjectStoreKey returns the store-map key for a project's beads store.
+func ProjectStoreKey(project string) string {
+	return "project:" + project
+}
+
+// storeKeyForPrefix maps a bead prefix to its store-map key: the rig name for
+// rig prefixes, ProjectStoreKey for project prefixes (projects are not rigs but
+// their beads must stay readable), and "hq" for town-level or unknown prefixes.
+func storeKeyForPrefix(townRoot, prefix string) string {
+	if rigName := beads.GetRigNameForPrefix(townRoot, prefix); rigName != "" {
+		return rigName
 	}
-	return rigName
+	if project := beads.GetProjectNameForPrefix(townRoot, prefix); project != "" {
+		return ProjectStoreKey(project)
+	}
+	return "hq"
 }

@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+
+	"github.com/steveyegge/gastown/internal/config"
 )
 
 // UnregisteredBeadsDirsCheck detects directories in the town root that have
@@ -50,6 +52,15 @@ func (c *UnregisteredBeadsDirsCheck) Run(ctx *CheckContext) *CheckResult {
 	// Read town-level database name for deacon mismatch detection
 	townDB := readDoltDatabase(filepath.Join(ctx.TownRoot, ".beads"))
 
+	// Project names are known so the stray-directory message can say what the
+	// directory shadows. A project lives at projects/<name>, never at the
+	// town root, so such a directory is leftover debris, not a rig.
+	projects, _ := config.ListProjects(ctx.TownRoot)
+	projectNames := make(map[string]bool, len(projects))
+	for _, name := range projects {
+		projectNames[name] = true
+	}
+
 	var details []string
 
 	// Scan town root for directories with .beads/metadata.json
@@ -76,7 +87,11 @@ func (c *UnregisteredBeadsDirsCheck) Run(ctx *CheckContext) *CheckResult {
 
 		// Check if this directory has .beads/metadata.json
 		db := readDoltDatabase(filepath.Join(ctx.TownRoot, name, ".beads"))
-		if db != "" {
+		if db != "" && projectNames[name] {
+			details = append(details, fmt.Sprintf(
+				"%s/ is a stray directory with .beads/metadata.json (database %q); project %q lives in projects/%s, remove %s/",
+				name, db, name, name, name))
+		} else if db != "" {
 			details = append(details, fmt.Sprintf(
 				"%s/ has .beads/metadata.json pointing to database %q (not a registered rig)",
 				name, db))

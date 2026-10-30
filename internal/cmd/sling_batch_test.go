@@ -1959,3 +1959,37 @@ esac
 		t.Errorf("getConvoyInfoForIssue returned %+v, want nil for phantom convoy", got)
 	}
 }
+
+// TestResolveRigFromBeadIDs_ProjectPrefix_Errors verifies a project-prefixed
+// bead never resolves to the phantom rig "projects": the caller must name a rig.
+func TestResolveRigFromBeadIDs_ProjectPrefix_Errors(t *testing.T) {
+	townRoot := t.TempDir()
+	beadsDir := filepath.Join(townRoot, ".beads")
+	if err := os.MkdirAll(beadsDir, 0755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	routes := `{"prefix":"gt-","path":"gastown/mayor/rig"}
+{"prefix":"sh-","path":"projects/shop"}
+`
+	if err := os.WriteFile(filepath.Join(beadsDir, "routes.jsonl"), []byte(routes), 0644); err != nil {
+		t.Fatalf("write routes: %v", err)
+	}
+
+	rigName, err := resolveRigFromBeadIDs([]string{"sh-abc"}, townRoot)
+	if err == nil {
+		t.Fatalf("expected error, got rig %q", rigName)
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, `project "shop"`) || !strings.Contains(msg, "gt sling sh-abc <rig>") {
+		t.Errorf("error should name project and ask for a rig, got: %s", msg)
+	}
+
+	// An explicit rig is accepted by the cross-rig guard for project beads.
+	if err := checkCrossRigGuard("sh-abc", "gastown/polecats/_", townRoot); err != nil {
+		t.Errorf("project bead to explicit rig should pass guard: %v", err)
+	}
+	// Normal rig mismatches are still rejected.
+	if err := checkCrossRigGuard("gt-abc", "beads/polecats/_", townRoot); err == nil {
+		t.Error("expected cross-rig mismatch error for rig bead")
+	}
+}

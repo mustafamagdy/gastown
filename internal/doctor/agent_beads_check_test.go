@@ -385,3 +385,79 @@ func TestListPolecats_FiltersWorktrees(t *testing.T) {
 		t.Errorf("listPolecats should return only [scout], got: %v", polecats)
 	}
 }
+
+// TestAgentBeadsExistCheck_IgnoresProjectRoutes verifies a project route
+// (projects/<name>) is not mistaken for a rig named "projects".
+func TestAgentBeadsExistCheck_IgnoresProjectRoutes(t *testing.T) {
+	tmpDir := t.TempDir()
+	beadsDir := filepath.Join(tmpDir, ".beads")
+	if err := os.MkdirAll(filepath.Join(tmpDir, "projects", "shop", ".beads"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(beadsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	routes := `{"prefix":"sw-","path":"sallaWork/mayor/rig"}` + "\n" +
+		`{"prefix":"sh-","path":"projects/shop"}` + "\n"
+	if err := os.WriteFile(filepath.Join(beadsDir, "routes.jsonl"), []byte(routes), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(tmpDir, "sallaWork", "mayor", "rig", ".beads"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	result := NewAgentBeadsCheck().Run(&CheckContext{TownRoot: tmpDir})
+	for _, d := range result.Details {
+		if strings.Contains(d, "projects") || strings.HasPrefix(d, "sh-") {
+			t.Errorf("project route leaked into agent bead expectations: %q", d)
+		}
+	}
+	found := false
+	for _, d := range result.Details {
+		if d == "sw-sallaWork-witness" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected real rig sallaWork to still be checked, details: %v", result.Details)
+	}
+}
+
+// TestRigBeadsCheck_IgnoresProjectRoutes verifies the rig identity bead check
+// does not expect "sh-rig-projects".
+func TestRigBeadsCheck_IgnoresProjectRoutes(t *testing.T) {
+	tmpDir := t.TempDir()
+	beadsDir := filepath.Join(tmpDir, ".beads")
+	if err := os.MkdirAll(beadsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	routes := `{"prefix":"hq-","path":"."}` + "\n" + `{"prefix":"sh-","path":"projects/shop"}` + "\n"
+	if err := os.WriteFile(filepath.Join(beadsDir, "routes.jsonl"), []byte(routes), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	result := NewRigBeadsCheck().Run(&CheckContext{TownRoot: tmpDir})
+	if result.Status != StatusOK {
+		t.Errorf("status = %v (%s, %v), want OK with no rigs", result.Status, result.Message, result.Details)
+	}
+}
+
+// TestStaleAgentBeadsCheck_IgnoresProjectRoutes is a smoke test that other
+// route-enumerating checks do not report the phantom rig either.
+func TestStaleAgentBeadsCheck_IgnoresProjectRoutes(t *testing.T) {
+	tmpDir := t.TempDir()
+	beadsDir := filepath.Join(tmpDir, ".beads")
+	if err := os.MkdirAll(beadsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	routes := `{"prefix":"hq-","path":"."}` + "\n" + `{"prefix":"sh-","path":"projects/shop"}` + "\n"
+	if err := os.WriteFile(filepath.Join(beadsDir, "routes.jsonl"), []byte(routes), 0644); err != nil {
+		t.Fatal(err)
+	}
+	result := NewStaleAgentBeadsCheck().Run(&CheckContext{TownRoot: tmpDir})
+	for _, d := range result.Details {
+		if strings.Contains(d, "projects") {
+			t.Errorf("phantom rig in details: %q", d)
+		}
+	}
+}

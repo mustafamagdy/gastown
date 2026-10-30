@@ -546,10 +546,7 @@ func FireCrossRigDepNotifications(ctx context.Context, closedIssueID, townRoot s
 		return
 	}
 	closedRig := beads.GetRigNameForPrefix(townRoot, closedPrefix)
-	closedStoreKey := closedRig
-	if closedStoreKey == "" {
-		closedStoreKey = "hq"
-	}
+	closedStoreKey := storeKeyForPrefix(townRoot, closedPrefix)
 
 	// Build the external-wrapped form used when storing cross-rig dep records:
 	// "external:<prefix-without-trailing-dash>:<id>"

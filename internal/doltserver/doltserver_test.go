@@ -5186,3 +5186,46 @@ func TestHealthMetrics_CommitFreshnessFields(t *testing.T) {
 		t.Errorf("LastCommitAge = %v, want >= 0", metrics.LastCommitAge)
 	}
 }
+
+func TestBuildDatabaseToRigMap_SkipsProjectRoutes(t *testing.T) {
+	townRoot := t.TempDir()
+	beadsDir := filepath.Join(townRoot, ".beads")
+	if err := os.MkdirAll(beadsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	routes := `{"prefix":"gt-","path":"gastown/mayor/rig"}
+{"prefix":"sh-","path":"projects/shop"}
+`
+	if err := os.WriteFile(filepath.Join(beadsDir, "routes.jsonl"), []byte(routes), 0644); err != nil {
+		t.Fatal(err)
+	}
+	result := buildDatabaseToRigMap(townRoot)
+	if result["gt"] != "gastown" {
+		t.Errorf("gt = %q, want gastown", result["gt"])
+	}
+	if rig, ok := result["sh"]; ok {
+		t.Errorf("project prefix sh mapped to rig %q", rig)
+	}
+}
+
+func TestProjectDatabaseNames(t *testing.T) {
+	townRoot := t.TempDir()
+	projDir := filepath.Join(townRoot, "projects", "shop")
+	if err := os.MkdirAll(filepath.Join(projDir, ".beads"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(projDir, "project.json"), []byte(`{"name":"shop","prefix":"sh"}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	meta := `{"dolt_database":"shop_db"}`
+	if err := os.WriteFile(filepath.Join(projDir, ".beads", "metadata.json"), []byte(meta), 0644); err != nil {
+		t.Fatal(err)
+	}
+	names := projectDatabaseNames(townRoot)
+	if !names["shop"] || !names["shop_db"] {
+		t.Errorf("projectDatabaseNames = %v, want shop and shop_db", names)
+	}
+	if names["gastown"] {
+		t.Errorf("rig name leaked into project database set: %v", names)
+	}
+}

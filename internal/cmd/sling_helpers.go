@@ -437,8 +437,12 @@ func verifyBeadExistsInTargetRigDatabase(beadID, targetRig, townRoot string) err
 }
 
 func routedBeadExistsForTargetRig(beadID, targetRig, townRoot string) bool {
-	prefixRig := beads.GetRigNameForPrefix(townRoot, beads.ExtractPrefix(beadID))
-	if prefixRig != targetRig {
+	prefix := beads.ExtractPrefix(beadID)
+	prefixRig := beads.GetRigNameForPrefix(townRoot, prefix)
+	// Project-prefixed beads live in the project store and are reachable
+	// from any rig through routing.
+	isProject := prefixRig == "" && beads.GetProjectNameForPrefix(townRoot, prefix) != ""
+	if prefixRig != targetRig && !isProject {
 		return false
 	}
 	out, err := bdShowBeadRoutedCmdFromTownRoot(townRoot, beadID).Stderr(io.Discard).Output()
