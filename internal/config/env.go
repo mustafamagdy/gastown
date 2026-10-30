@@ -99,6 +99,17 @@ type AgentEnvConfig struct {
 func AgentEnv(cfg AgentEnvConfig) map[string]string {
 	env := make(map[string]string)
 
+	// Org environment first (lowest priority): every agent of the town acts
+	// as the org's accounts. gt's own variables below always win, and the
+	// protected identity/session names are filtered out at resolve time.
+	if cfg.TownRoot != "" {
+		if org := OrgEnvForTown(cfg.TownRoot); org != nil {
+			for k, v := range org.Vars {
+				env[k] = v
+			}
+		}
+	}
+
 	// Set role-specific variables
 	// GT_ROLE is set in compound format (e.g., "beads/crew/jane") so that
 	// beads can parse it without knowing about Gas Town role types.

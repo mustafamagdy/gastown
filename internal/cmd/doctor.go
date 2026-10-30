@@ -219,6 +219,8 @@ func newDoctorForCommand(rig string) *doctor.Doctor {
 	d.Register(doctor.NewDaemonCheck())
 	d.Register(doctor.NewTmuxGlobalEnvCheck())
 	d.Register(doctor.NewHerdrCheck()) // herdr backend only; no-op under tmux
+	d.Register(doctor.NewOrgEnvCheck())   // no-op unless org_env is configured
+	d.Register(doctor.NewAxiToolsCheck()) // no-op unless axi_tools is configured
 	d.Register(doctor.NewMultiplexerOrphansCheck())
 	d.Register(doctor.NewBootHealthCheck())
 	d.Register(doctor.NewTownBeadsConfigCheck())

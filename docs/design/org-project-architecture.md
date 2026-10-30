@@ -58,9 +58,47 @@ keeps upstream behaviour unchanged.
 - Dolt: each town needs its own port (`gt install --dolt-port 3308`, ...).
 - herdr: each town sets `herdr_session` to the org name, so towns never share
   a herdr session and workspace names never collide.
-- Org environment: agents start with the org's `.envrc` environment (the
-  `orgrun` contract), so tools act as the org's accounts (for example `gh` as
-  the org's GitHub user, `az` signed in to the org's Azure DevOps).
+- Org environment: agents start with the org's environment (the `orgrun`
+  contract), so tools act as the org's accounts (for example `gh` as the org's
+  GitHub user, `az` signed in to the org's Azure DevOps). Declared by the
+  `org_env` town setting, see below.
+
+### Org environment (`org_env`)
+
+`<town>/settings/config.json` names the source of the org environment. Exactly
+one of:
+
+- `{"direnv": "<dir>"}`: env is the output of `direnv exec <dir> env -0`.
+- `{"file": "<path>"}`: a dotenv file (`KEY=VALUE` lines, `#` comments,
+  optional `export `, single or double quotes stripped, no interpolation).
+
+`~` expands in both. An optional `"vars"` allow-list limits what is taken.
+Without it, every variable that differs from gt's own process environment is
+taken. Never overridden, in either mode: identity and session variables gt
+sets (`GT_*`, `BD_*`, `BEADS_*`, `TMUX*`, `HERDR_*`, `CLAUDE_CONFIG_DIR`,
+`HOME`, `USER`, `PWD`, `SHLVL`, `_`, `OLDPWD`). `PATH` is merged: entries that
+are new are prepended, existing ones are kept.
+
+```json
+{
+  "type": "town-settings",
+  "version": 1,
+  "org_env": {
+    "direnv": "~/work/mbg",
+    "vars": ["GH_TOKEN", "AZURE_DEVOPS_EXT_PAT"]
+  },
+  "axi_tools": ["gh-axi@0.1.37", "az-axi", "lavish-axi", "quota-axi"]
+}
+```
+
+`config.AgentEnv` adds the org environment at the lowest priority, so every
+agent session of the town gets it (mayor, deacon, dogs, witness, refinery,
+polecats, crew), and gt's own variables always win. It is resolved once per gt
+process and cached, because direnv can be slow. A failure prints one warning
+to stderr and agents start without the org environment; agent start is never
+blocked. Logs and output carry variable names and counts only, never values.
+
+`gt org env [--json]` prints the source and the resolved variable names.
 
 ## Project
 
@@ -232,10 +270,21 @@ gt code never parses it. Exceptions where no stable layer exists (`quota-axi`,
 `lavish-axi poll`) use their machine output mode, pinned versions and contract
 tests.
 
-Each town lists the AXI tools it needs (`axi_tools` setting). gt installs them
-at pinned versions, merges their session-start context into `gt prime`, and
-`gt doctor` checks each one runs (catching, for example, a stale Azure
-subscription).
+Each town lists the AXI tools it needs in the `axi_tools` setting: tool names,
+each optionally pinned as `name@version` (see the snippet under "Org =
+town"). `contrib/fork-host/install-axi.sh` installs the pinned versions. gt
+merges their session-start context into `gt prime`.
+
+`gt doctor` runs two checks:
+
+- `org-env`: when `org_env` is set, it must resolve and yield at least one
+  variable; otherwise a warning (agents would start without it).
+- `axi-tools`: for each configured tool, it must be on `PATH` (with the org
+  environment applied), `--version` must match the pin if there is one, and
+  running it with no arguments (15 second timeout, in the town root, with the
+  org environment) must exit 0. A failure reports the tool's first error line,
+  which catches problems like az-axi's `SubscriptionNotFound` for a stale
+  Azure subscription.
 
 ## Runtime routing by quota
 

@@ -90,6 +90,16 @@ type TownSettings struct {
 	// The GT_HERDR_SESSION environment variable overrides it.
 	HerdrSession string `json:"herdr_session,omitempty"`
 
+	// OrgEnv makes every agent session of the town run with the org's
+	// environment (see OrgEnvConfig). Example:
+	// {"direnv": "~/work/mbg", "vars": ["GH_TOKEN", "AZURE_DEVOPS_EXT_PAT"]}
+	OrgEnv *OrgEnvConfig `json:"org_env,omitempty"`
+
+	// AxiTools lists the AXI agent tools the town uses (e.g. "gh-axi",
+	// "lavish-axi"), each optionally pinned as "name@version". gt doctor
+	// checks each one is installed, at the pinned version, and runs.
+	AxiTools []string `json:"axi_tools,omitempty"`
+
 	// WebTimeouts configures command execution timeouts for the web dashboard.
 	WebTimeouts *WebTimeoutsConfig `json:"web_timeouts,omitempty"`
 
