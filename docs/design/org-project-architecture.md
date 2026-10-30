@@ -226,10 +226,33 @@ Registration is cheap: a bare clone shared through local git objects.
    each neighbour with its relation and relevant endpoints or events (at most
    10, then "and N more"). Without a map it prints a hint to run
    `gt project map build <p>`. Never the whole project.
-4. **Learnings:** durable facts go to the project memory folder, so agents on
+4. **Project memory and docs in prime (implemented):** after the project
+   `CONTEXT.md`, `gt prime` prints `## Project memory (<org>/<project>)`: the
+   `MEMORY.md` index of `${AGENT_BRAIN_DIR:-~/.agent-brain}/memory/<memory key>/`
+   (at most 40 lines, then "and N more in <dir>") and two lines telling the
+   agent to read the linked files when relevant and to save durable project
+   facts there (one fact per file plus an index line, never secrets). If
+   `docs` is set, up to 15 top-level doc file names follow under
+   `Project docs: <dir>`. Nothing is printed when the memory key is unset or
+   the folder is missing; prime never fails on this.
+5. **Learnings:** durable facts go to the project memory folder, so agents on
    every repo of the project see them.
-5. **agent-brain mapping:** the town writes path rules so every rig path maps
-   to `<org>/<project>`, not to the repo name or `gt`.
+6. **Read-only neighbour checkouts (implemented):** when a polecat is spawned
+   or reused in a project rig, `polecats/<name>/neighbours/<neighbour-rig>`
+   gets a detached worktree of each neighbour (from the saved service map, in
+   `Neighbours` order) at `origin/<default>` (else `<default>`) of the
+   neighbour's `.repo.git`, with write bits removed. Reuse refreshes them to
+   the latest commit (or recreates them). `neighbour_checkouts` in
+   `project.json` caps the count (default 8, `0` disables). They are removed
+   (`git worktree remove --force`, then prune) wherever the polecat is
+   removed. Failures only warn. Prime lists them for polecats as
+   `Read-only code: ../neighbours/<rig> (<commit>)`.
+7. **agent-brain mapping:** `gt project brain-rules <project>` prints one rule
+   per rig, `{ path = "~/gt/<rig>", org = "<org>", project = "<project>" }`
+   (org and project from the memory key), to paste into agent-brain's
+   `config/brain.toml` under a machine's `rules`, so every rig path maps to
+   `<org>/<project>` and not to the repo name or `gt`. More specific rules must
+   come before generic ones. It modifies no agent-brain file.
 
 ## Multi-repo features
 
@@ -326,7 +349,7 @@ a project (many repos) polecats are tabs, not nested worktree workspaces.
 | 0 | Fork host setup in `contrib/fork-host`, this document | done |
 | 1 | Project layer: config, `gt project`, project beads, prime context, rigs on demand, herdr grouping | done (tested on the `contrib/project-demo` shop project) |
 | 2 | Org identity in agents, per-town AXI tool list, `gt doctor` checks | planned |
-| 3 | Project brain: brief, service map, read-only neighbours | service map done |
+| 3 | Project brain: brief, service map, read-only neighbours | done |
 | 4 | Multi-repo features: same-name integration branches, ordered linked PRs, Azure DevOps PR provider | planned |
 | 5 | Review gate: `gt review`, reviewer dog, refinery approval gate | planned |
 | 6 | Runtime routing by quota | planned |

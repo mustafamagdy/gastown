@@ -540,6 +540,7 @@ func outputRoleContext(ctx RoleContext) (string, error) {
 	outputRoleDirectives(ctx, os.Stdout, primeExplain)
 	outputContextFile(ctx)
 	outputProjectContextFile(ctx)
+	outputProjectBrainContext(ctx)
 	outputServiceMapContext(ctx)
 	outputHandoffContent(ctx)
 	outputAttachmentStatus(ctx)

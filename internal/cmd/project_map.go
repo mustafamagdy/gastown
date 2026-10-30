@@ -162,6 +162,7 @@ func outputServiceMapContext(ctx RoleContext) {
 		return
 	}
 	fmt.Print(renderServiceMapContext(ctx.TownRoot, project, ctx.Rig))
+	fmt.Print(renderNeighbourCheckouts(ctx.TownRoot, ctx.Rig, ctx.Polecat))
 }
 
 func renderServiceMapContext(townRoot, project, rig string) string {

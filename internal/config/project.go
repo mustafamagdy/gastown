@@ -31,6 +31,24 @@ type ProjectConfig struct {
 	// OnDemand makes the project's rigs run their witness and refinery only
 	// while they have work. nil means true (the default for projects).
 	OnDemand *bool `json:"on_demand,omitempty"`
+
+	// NeighbourCheckouts caps the read-only neighbour checkouts materialized
+	// for each polecat. nil means DefaultNeighbourCheckouts; 0 disables them.
+	NeighbourCheckouts *int `json:"neighbour_checkouts,omitempty"`
+}
+
+// DefaultNeighbourCheckouts is the neighbour checkout cap when unset.
+const DefaultNeighbourCheckouts = 8
+
+// NeighbourCheckoutLimit returns how many neighbour checkouts a polecat gets.
+func (p *ProjectConfig) NeighbourCheckoutLimit() int {
+	if p == nil || p.NeighbourCheckouts == nil {
+		return DefaultNeighbourCheckouts
+	}
+	if *p.NeighbourCheckouts < 0 {
+		return 0
+	}
+	return *p.NeighbourCheckouts
 }
 
 // IsOnDemand reports whether the project's rigs run agents on demand (default true).

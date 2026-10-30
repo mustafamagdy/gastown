@@ -67,6 +67,20 @@ func refCommit(bare, branch string) (string, error) {
 	return "", fmt.Errorf("branch %q not found in %s", branch, bare)
 }
 
+// BranchRef returns the ref to read a rig's default branch from in its bare
+// repo (origin/<branch> if present, else <branch>) and the commit it points at.
+func BranchRef(bare, branch string) (ref, commit string, err error) {
+	for _, r := range []string{"refs/remotes/origin/" + branch, "refs/heads/" + branch} {
+		if out, gerr := git(bare, "rev-parse", "--verify", "--quiet", r+"^{commit}"); gerr == nil {
+			return strings.TrimPrefix(strings.TrimPrefix(r, "refs/remotes/"), "refs/heads/"), strings.TrimSpace(string(out)), nil
+		}
+	}
+	return "", "", fmt.Errorf("branch %q not found in %s", branch, bare)
+}
+
+// DefaultBranch reads default_branch from <rigPath>/config.json (main if unset).
+func DefaultBranch(rigPath string) string { return rigDefaultBranch(rigPath) }
+
 // repoFiles reads the interesting files present at a commit.
 func repoFiles(bare, commit string) (map[string][]byte, error) {
 	var wanted []string

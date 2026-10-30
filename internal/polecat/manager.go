@@ -748,6 +748,7 @@ func (m *Manager) addWithOptionsLocked(name string, opts AddOptions, polecatDir 
 			}
 		}
 
+		CleanupNeighbourCheckouts(filepath.Dir(m.rig.Path), polecatDir)
 		_ = os.RemoveAll(polecatDir)
 
 		m.namePool.Release(name)
@@ -858,6 +859,8 @@ func (m *Manager) addWithOptionsLocked(name string, opts AddOptions, polecatDir 
 		return nil, fmt.Errorf("agent bead required for polecat tracking: %w", err)
 	}
 
+	m.setupNeighbours(name)
+
 	now := time.Now()
 	polecat := &Polecat{
 		Name:      name,
@@ -940,7 +943,8 @@ func (m *Manager) AddWithOptions(name string, opts AddOptions) (_ *Polecat, retE
 			}
 		}
 
-		// Remove polecat directory
+		// Remove polecat directory (neighbour checkouts are read-only)
+		CleanupNeighbourCheckouts(filepath.Dir(m.rig.Path), polecatDir)
 		_ = os.RemoveAll(polecatDir)
 
 		// Release name back to pool so it can be reallocated immediately
@@ -1092,6 +1096,9 @@ func (m *Manager) AddWithOptions(name string, opts AddOptions) (_ *Polecat, retE
 		cleanupOnError()
 		return nil, fmt.Errorf("agent bead required for polecat tracking: %w", err)
 	}
+
+	// Read-only checkouts of the rig's neighbours (project rigs only; never fatal).
+	m.setupNeighbours(name)
 
 	// Return polecat with working state (transient model: polecats are spawned with work)
 	// State is derived from beads, not stored in state.json
@@ -1245,6 +1252,10 @@ func (m *Manager) removeWithOptionsLocked(name string, force, nuclear, selfNuke 
 			}
 		}
 	}
+
+	// Neighbour checkouts are read-only worktrees of other rigs' repos: detach
+	// them first so the directory removal below cannot trip over them.
+	m.cleanupNeighbours(name)
 
 	// Get repo base to remove the worktree properly
 	repoGit, err := m.repoBase()
@@ -1707,6 +1718,7 @@ func (m *Manager) RepairWorktreeWithOptions(name string, force bool, opts AddOpt
 	if err := m.runSetupCommand(newClonePath); err != nil {
 		_ = repoGit.WorktreeRemove(newClonePath, true)
 		_ = os.RemoveAll(newClonePath)
+		m.cleanupNeighbours(name)
 		_ = os.RemoveAll(polecatDir)
 		return nil, err
 	}
@@ -1726,9 +1738,12 @@ func (m *Manager) RepairWorktreeWithOptions(name string, force bool, opts AddOpt
 		_ = os.RemoveAll(newClonePath)
 		// Remove polecatDir to prevent limbo state where m.exists(name) returns true
 		// but no valid worktree exists. Matches AddWithOptions cleanupOnError behavior.
+		m.cleanupNeighbours(name)
 		_ = os.RemoveAll(polecatDir)
 		return nil, fmt.Errorf("agent bead required for polecat tracking: %w", err)
 	}
+
+	m.setupNeighbours(name)
 
 	// Return fresh polecat in working state (transient model: polecats are spawned with work)
 	now := time.Now()
@@ -1932,6 +1947,9 @@ func (m *Manager) ReuseIdlePolecat(name string, opts AddOptions) (*Polecat, erro
 	if err := m.agentBeads().UpdateAgentState(agentID, "spawning"); err != nil {
 		style.PrintWarning("could not sync agent_state column to spawning: %v", err)
 	}
+
+	// Refresh the read-only neighbour checkouts to their latest default branch.
+	m.setupNeighbours(name)
 
 	now := time.Now()
 	return &Polecat{
@@ -2220,6 +2238,7 @@ func (m *Manager) removePartialOrphanPolecatDir(name, polecatDir string) error {
 		return fmt.Errorf("not safe to remove partial orphan: assigned_work=%s status=%s", work[0].ID, work[0].Status)
 	}
 
+	m.cleanupNeighbours(name)
 	return os.RemoveAll(polecatDir)
 }
 
