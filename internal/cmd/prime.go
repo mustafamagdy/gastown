@@ -539,6 +539,7 @@ func outputRoleContext(ctx RoleContext) (string, error) {
 
 	outputRoleDirectives(ctx, os.Stdout, primeExplain)
 	outputContextFile(ctx)
+	outputProjectContextFile(ctx)
 	outputHandoffContent(ctx)
 	outputAttachmentStatus(ctx)
 	return formula, nil

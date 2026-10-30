@@ -55,6 +55,11 @@ type AgentEnvConfig struct {
 	// Sets GT_ROOT environment variable.
 	TownRoot string
 
+	// Project is the project the rig belongs to (optional).
+	// Sets GT_PROJECT for rig-scoped roles. When empty, AgentEnv looks it up
+	// from rigs.json (one read) so callers don't need to fill it.
+	Project string
+
 	// RuntimeConfigDir is the optional CLAUDE_CONFIG_DIR path
 	RuntimeConfigDir string
 
@@ -166,6 +171,18 @@ func AgentEnv(cfg AgentEnvConfig) map[string]string {
 		// This stops accidental commits to the umbrella when running git commands from
 		// intermediate directories (e.g., polecats/) that don't have their own .git.
 		env["GIT_CEILING_DIRECTORIES"] = cfg.TownRoot
+	}
+
+	// Set GT_PROJECT for rig-scoped roles whose rig belongs to a project.
+	switch cfg.Role {
+	case constants.RoleWitness, constants.RoleRefinery, constants.RolePolecat, constants.RoleCrew:
+		project := cfg.Project
+		if project == "" {
+			project, _ = ProjectForRig(cfg.TownRoot, cfg.Rig)
+		}
+		if project != "" {
+			env["GT_PROJECT"] = project
+		}
 	}
 
 	// Set BEADS_AGENT_NAME for polecat/crew (uses same format as BD_ACTOR)

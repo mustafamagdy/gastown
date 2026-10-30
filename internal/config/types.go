@@ -635,6 +635,7 @@ type RigEntry struct {
 	LocalRepo   string       `json:"local_repo,omitempty"`
 	AddedAt     time.Time    `json:"added_at"`
 	BeadsConfig *BeadsConfig `json:"beads,omitempty"`
+	Project     string       `json:"project,omitempty"` // optional project (group of rigs) this rig belongs to
 }
 
 // BeadsConfig represents beads configuration for a rig.

@@ -198,3 +198,29 @@ func TestOutputCommandQuickReferenceBootBlocksRawTmux(t *testing.T) {
 		t.Fatalf("Boot quick reference still calls raw tmux merely unreliable:\n%s", output)
 	}
 }
+
+func TestOutputRoleDirectives_ProjectTier(t *testing.T) {
+	t.Parallel()
+	townRoot := t.TempDir()
+	rigsPath := filepath.Join(townRoot, "mayor")
+	if err := os.MkdirAll(rigsPath, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(rigsPath, "rigs.json"), []byte(`{"version":1,"rigs":{"myrig":{"git_url":"u","added_at":"2026-01-01T00:00:00Z","project":"xelta"}}}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(townRoot, "projects", "xelta", "directives")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "polecat.md"), []byte("Use the shared API client."), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	outputRoleDirectives(RoleContext{Role: RolePolecat, TownRoot: townRoot, Rig: "myrig"}, &buf, false)
+	out := buf.String()
+	if !strings.Contains(out, "project xelta") || !strings.Contains(out, "Use the shared API client.") {
+		t.Errorf("expected project directive and header, got: %s", out)
+	}
+}

@@ -65,6 +65,7 @@ func outputPrimeContext(ctx RoleContext) (string, error) {
 	townName, _ := workspace.GetTownName(ctx.TownRoot)
 
 	defaultBranch, isForkRig, upstreamURL := roleRigContext(ctx)
+	project, projectRigs, projectPrefix := roleProjectContext(ctx)
 
 	data := templates.RoleData{
 		Role:          roleName,
@@ -76,6 +77,9 @@ func outputPrimeContext(ctx RoleContext) (string, error) {
 		IsForkRig:     isForkRig,
 		UpstreamURL:   upstreamURL,
 		Polecat:       ctx.Polecat,
+		Project:       project,
+		ProjectRigs:   projectRigs,
+		ProjectPrefix: projectPrefix,
 		DogName:       ctx.Polecat, // ctx.Polecat holds the dog name for RoleDog
 		MayorSession:  session.MayorSessionName(),
 		DeaconSession: session.DeaconSessionName(),
@@ -89,6 +93,27 @@ func outputPrimeContext(ctx RoleContext) (string, error) {
 
 	fmt.Print(output)
 	return output, nil
+}
+
+// roleProjectContext returns the project the context's rig belongs to, the
+// sibling rigs in that project (excluding the rig itself) and the project beads
+// prefix. All values are empty when the rig is not in a project.
+func roleProjectContext(ctx RoleContext) (project string, siblings []string, prefix string) {
+	project, err := config.ProjectForRig(ctx.TownRoot, ctx.Rig)
+	if err != nil || project == "" {
+		return "", nil, ""
+	}
+	if rigsConfig, err := config.LoadRigsConfig(filepath.Join(ctx.TownRoot, "mayor", "rigs.json")); err == nil {
+		for _, name := range config.RigsInProject(rigsConfig, project) {
+			if name != ctx.Rig {
+				siblings = append(siblings, name)
+			}
+		}
+	}
+	if cfg, err := config.LoadProjectConfig(ctx.TownRoot, project); err == nil {
+		prefix = cfg.Prefix
+	}
+	return project, siblings, prefix
 }
 
 func roleRigContext(ctx RoleContext) (defaultBranch string, isForkRig bool, upstreamURL string) {
@@ -134,6 +159,8 @@ func outputRoleDirectives(ctx RoleContext, w io.Writer, explainEnabled bool) {
 		}
 	}
 
+	project, _ := config.ProjectForRig(townRoot, rigName)
+
 	content := config.LoadRoleDirective(role, townRoot, rigName)
 	if content == "" {
 		explainf("Role directives: no directive files found (checked %s", townPath)
@@ -159,10 +186,18 @@ func outputRoleDirectives(ctx RoleContext, w io.Writer, explainEnabled bool) {
 		}
 	}
 
-	explainf("Role directives: town=%v rig=%v (town=%s, rig=%s)", hasTown, hasRig, townPath, rigPath)
+	hasProject := false
+	if project != "" {
+		data, err := os.ReadFile(config.ProjectDirectivePath(townRoot, project, role)) //nolint:gosec // G304: path is from trusted config
+		hasProject = err == nil && strings.TrimSpace(string(data)) != ""
+	}
+
+	explainf("Role directives: town=%v project=%v rig=%v (town=%s, rig=%s)", hasTown, hasProject, hasRig, townPath, rigPath)
 
 	fmt.Fprintln(w)
-	if hasTown && hasRig {
+	if hasProject {
+		fmt.Fprintf(w, "## Directives (town, project %s, rig; operator policy, overrides formula where they conflict)\n", project)
+	} else if hasTown && hasRig {
 		fmt.Fprintln(w, "## Town & Rig Directives (operator policy — overrides formula where they conflict)")
 	} else if hasRig {
 		fmt.Fprintln(w, "## Rig Directives (operator policy — overrides formula where they conflict)")
@@ -457,6 +492,25 @@ func outputContextFile(ctx RoleContext) {
 	}
 	explain(true, "CONTEXT.md: found at "+contextPath+", injecting contents")
 	fmt.Println()
+	fmt.Print(string(data))
+}
+
+// outputProjectContextFile reads and displays <town>/projects/<project>/CONTEXT.md
+// for agents whose rig belongs to a project. It follows the town CONTEXT.md.
+func outputProjectContextFile(ctx RoleContext) {
+	project, _ := config.ProjectForRig(ctx.TownRoot, ctx.Rig)
+	if project == "" {
+		return
+	}
+	contextPath := config.ProjectContextPath(ctx.TownRoot, project)
+	data, err := os.ReadFile(contextPath) //nolint:gosec // G304: path is from trusted config
+	if err != nil {
+		explain(true, "Project CONTEXT.md: not found at "+contextPath)
+		return
+	}
+	explain(true, "Project CONTEXT.md: found at "+contextPath+", injecting contents")
+	fmt.Println()
+	fmt.Printf("## Project Context: %s\n\n", project)
 	fmt.Print(string(data))
 }
 

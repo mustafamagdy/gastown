@@ -40,7 +40,7 @@ their upstream meanings; see `docs/glossary.md`.
 ```
 TOWN (org)                      ~/work/<org>/gt, own Dolt port, own herdr session
 ├─ HQ                           mayor, deacon, boot, dogs (incl. reviewer dog)
-└─ PROJECT                      projects/<name>.json
+└─ PROJECT                      projects/<name>/project.json
    ├─ project beads             own prefix; features (epics) spanning rigs
    ├─ project brain             brief, service map, agent-brain memory folder
    ├─ witness + refinery        ONE pair per project
@@ -66,7 +66,11 @@ keeps upstream behaviour unchanged.
 
 ### Definition
 
-`<town>/projects/<name>.json`:
+`<town>/projects/<name>/project.json`, next to `CONTEXT.md` (shared context
+injected by `gt prime`), `directives/<role>.md` (project-level role directives,
+between town and rig) and `.beads/` (project beads). Rig membership is recorded
+on the rig (`project` in `mayor/rigs.json`), not in this file; agents in a
+member rig get `GT_PROJECT`.
 
 ```json
 {

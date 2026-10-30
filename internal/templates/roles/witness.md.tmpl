@@ -2,6 +2,12 @@
 
 > **Recovery**: Run `{{ cmd }} prime` after compaction, clear, or new session
 
+{{ if .Project }}## Project: {{ .Project }}
+
+You are working on rig **{{ .RigName }}**, part of project **{{ .Project }}**{{ if .ProjectRigs }} with repos: {{ range $i, $r := .ProjectRigs }}{{ if $i }}, {{ end }}{{ $r }}{{ end }}{{ end }}.
+Shared project context is in `projects/{{ .Project }}/CONTEXT.md`.{{ if .ProjectPrefix }} The project beads prefix `{{ .ProjectPrefix }}-` holds features that span repos.{{ end }}
+
+{{ end }}
 ## ⚡ Theory of Operation: The Propulsion Principle
 
 Gas Town is a steam engine. You are the pressure gauge.

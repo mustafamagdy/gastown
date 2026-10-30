@@ -66,6 +66,9 @@ type RoleData struct {
 	UpstreamURL   string   // redacted upstream URL for display only
 	Polecat       string   // polecat name (for polecat role)
 	Polecats      []string // list of polecats (for witness role)
+	Project       string   // project the rig belongs to (empty if none)
+	ProjectRigs   []string // sibling rigs in the project (excluding this rig)
+	ProjectPrefix string   // project beads prefix without hyphen (e.g., "xe")
 	DogName       string   // dog name (for dog role)
 	BeadsDir      string   // BEADS_DIR path
 	IssuePrefix   string   // beads issue prefix
