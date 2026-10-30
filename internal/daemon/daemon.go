@@ -90,6 +90,10 @@ type Daemon struct {
 	// Only accessed from heartbeat loop goroutine - no sync needed.
 	bootLastSpawned time.Time
 
+	// serviceMapLastRun throttles project service map refreshes per project.
+	// Only accessed from heartbeat loop goroutine - no sync needed.
+	serviceMapLastRun map[string]time.Time
+
 	// Restart tracking with exponential backoff to prevent crash loops
 	restartTracker *RestartTracker
 
@@ -1021,6 +1025,9 @@ func (d *Daemon) heartbeat(state *State) {
 	// 15. Rotate oversized Dolt logs (copytruncate for child process fds).
 	// daemon.log uses lumberjack for automatic rotation; this handles Dolt server logs.
 	d.rotateOversizedLogs()
+
+	// 16. Refresh project service maps (incremental: unchanged rigs are skipped).
+	d.refreshServiceMaps()
 
 	// Update state
 	state.LastHeartbeat = time.Now()
