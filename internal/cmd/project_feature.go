@@ -15,6 +15,7 @@ import (
 	"github.com/steveyegge/gastown/internal/beads"
 	"github.com/steveyegge/gastown/internal/config"
 	"github.com/steveyegge/gastown/internal/deps"
+	"github.com/steveyegge/gastown/internal/polecat"
 	"github.com/steveyegge/gastown/internal/projectfeature"
 	"github.com/steveyegge/gastown/internal/projectmap"
 	"github.com/steveyegge/gastown/internal/rig"
@@ -362,6 +363,26 @@ func featureTaskStatuses(townRoot string, rec *projectfeature.Record) map[string
 		}
 	}
 	return status
+}
+
+// setupFeatureNeighbours gives a polecat on a feature task read-only checkouts
+// of the feature's other rigs at the feature branch. The polecat manager
+// already made default branch checkouts; it does not know the work bead.
+func setupFeatureNeighbours(townRoot string, info *SpawnedPolecatInfo, hookBead string) {
+	if hookBead == "" {
+		return
+	}
+	rec, _, err := projectfeature.ResolveForBead(townRoot, hookBead)
+	if err != nil || rec == nil {
+		return
+	}
+	rigs := make([]string, 0, len(rec.Rigs))
+	for rig := range rec.Rigs {
+		rigs = append(rigs, rig)
+	}
+	sort.Strings(rigs)
+	polecatDir := filepath.Join(townRoot, info.RigName, "polecats", info.PolecatName)
+	polecat.SetupFeatureNeighbourCheckouts(townRoot, info.RigName, polecatDir, rec.Branch, rigs)
 }
 
 func loadFeature(townRoot, id string) (*projectfeature.Record, error) {

@@ -169,3 +169,37 @@ func TestNeighbourCheckoutsSkips(t *testing.T) {
 		t.Errorf("no map: %+v", got)
 	}
 }
+
+// A feature polecat sees sibling rigs at the feature branch, even a rig the
+// service map has no edge to, and the feature's rigs fill the cap first.
+func TestFeatureNeighbourCheckouts(t *testing.T) {
+	limit := 2
+	town, bare, work := neighbourTown(t, &limit)
+	const branch = "feat/sh-1-x"
+	runGit(t, "-C", work["stock"], "checkout", "-q", "-b", branch)
+	addCommit(t, work["stock"], bare["stock"], "src/new.txt", "unmerged")
+	runGit(t, "-C", work["stock"], "checkout", "-q", "main")
+
+	polecatDir := filepath.Join(town, "orders", "polecats", "toast")
+	got := SetupFeatureNeighbourCheckouts(town, "orders", polecatDir, branch, []string{"orders", "stock"})
+	if len(got) != 2 || got[0].Rig != "stock" {
+		t.Fatalf("checkouts = %+v, want stock first, cap 2", got)
+	}
+	if _, err := os.Stat(filepath.Join(polecatDir, "neighbours", "stock", "src", "new.txt")); err != nil {
+		t.Errorf("sibling's feature branch work missing: %v", err)
+	}
+	if b := NeighbourFeatureBranch(polecatDir); b != branch {
+		t.Errorf("NeighbourFeatureBranch = %q", b)
+	}
+	if len(ListNeighbourCheckouts(polecatDir)) != 2 {
+		t.Errorf("list = %+v", ListNeighbourCheckouts(polecatDir))
+	}
+	SetupNeighbourCheckouts(town, "orders", polecatDir)
+	if b := NeighbourFeatureBranch(polecatDir); b != "" {
+		t.Errorf("default checkout must clear the branch marker, got %q", b)
+	}
+	CleanupNeighbourCheckouts(town, polecatDir)
+	if _, err := os.Stat(filepath.Join(polecatDir, "neighbours")); !os.IsNotExist(err) {
+		t.Errorf("neighbours dir not removed: %v", err)
+	}
+}

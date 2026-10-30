@@ -105,6 +105,7 @@ func SpawnPolecatForSling(rigName string, opts SlingSpawnOptions) (*SpawnedPolec
 		// On-demand rigs: the polecat now exists, so bring the witness up
 		// right away instead of waiting for the next daemon heartbeat.
 		ensureOnDemandWitness(opts.TownRoot, rigName)
+		setupFeatureNeighbours(opts.TownRoot, info, opts.HookBead)
 	}
 	return info, err
 }

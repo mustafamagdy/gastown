@@ -310,11 +310,12 @@ lock, so the CLI and the daemon do not lose each other's changes. The code is in
    behind the polecat pressure gate. `--if-started` makes the run a no-op until
    some task has left `open`, so the first dispatch stays an explicit decision.
    Errors are logged; the heartbeat never fails because of it.
-7. A task counts as done when its bead is closed. For merge queue work the
-   source bead is closed by the refinery (MERGE_COMPLETED callback) only after
-   the MR has merged into the target branch, which for a feature task is the
-   feature branch, so closed means merged. Work that skips the merge queue
-   (`--no-merge`, review only) is closed by `gt done` itself.
+7. A task counts as done when its bead is closed and no MR for it is open.
+   `gt done` closes the bead when the polecat submits, before the refinery
+   merges, so a closed task with an open MR shows as `merging` and releases
+   nothing. If the merge queue cannot be read, dependents wait.
+   A polecat on a feature task also gets read-only checkouts of the feature's
+   other rigs at the feature branch, so it can read what sibling tasks merged.
 8. `gt project feature land <feature> [--dry-run]` lands the feature across its
    rigs as a linked set (`internal/projectfeature/land.go`). Every pass is
    idempotent and driven by re-running the command.

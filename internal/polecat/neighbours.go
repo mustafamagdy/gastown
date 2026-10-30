@@ -119,6 +119,19 @@ func removeNeighbour(bare, path string) {
 // project's saved service map, capped by the project's neighbour_checkouts.
 // It never fails the caller: problems are warned about and skipped.
 func SetupNeighbourCheckouts(townRoot, rigName, polecatDir string) []NeighbourCheckout {
+	return setupNeighbourCheckouts(townRoot, rigName, polecatDir, "", nil)
+}
+
+// SetupFeatureNeighbourCheckouts is SetupNeighbourCheckouts for a polecat
+// working on a multi-repo feature: the other rigs of the feature come first
+// and are checked out at the feature branch, where sibling tasks have merged
+// work that is not on any default branch yet. A sibling repo is included even
+// when the service map shows no edge to it (a shared contracts repo, say).
+func SetupFeatureNeighbourCheckouts(townRoot, rigName, polecatDir, branch string, featureRigs []string) []NeighbourCheckout {
+	return setupNeighbourCheckouts(townRoot, rigName, polecatDir, branch, featureRigs)
+}
+
+func setupNeighbourCheckouts(townRoot, rigName, polecatDir, branch string, featureRigs []string) []NeighbourCheckout {
 	project, err := config.ProjectForRig(townRoot, rigName)
 	if err != nil || project == "" {
 		return nil
@@ -136,7 +149,19 @@ func SetupNeighbourCheckouts(townRoot, rigName, polecatDir string) []NeighbourCh
 		CleanupNeighbourCheckouts(townRoot, polecatDir)
 		return nil
 	}
-	want := projectmap.Neighbours(m, rigName)
+	inFeature := map[string]bool{}
+	var want []string
+	for _, n := range featureRigs {
+		if n != rigName && !inFeature[n] {
+			inFeature[n] = true
+			want = append(want, n)
+		}
+	}
+	for _, n := range projectmap.Neighbours(m, rigName) {
+		if !inFeature[n] {
+			want = append(want, n)
+		}
+	}
 	if len(want) > limit {
 		want = want[:limit]
 	}
@@ -145,7 +170,15 @@ func SetupNeighbourCheckouts(townRoot, rigName, polecatDir string) []NeighbourCh
 	for _, n := range want {
 		nRig := filepath.Join(townRoot, n)
 		bare := filepath.Join(nRig, ".repo.git")
-		ref, _, err := projectmap.BranchRef(bare, projectmap.DefaultBranch(nRig))
+		source := projectmap.DefaultBranch(nRig)
+		if inFeature[n] {
+			source = branch
+			// Sibling tasks land on the remote; the bare repo may not have them yet.
+			if _, err := gitBare(bare, "fetch", "-q", "origin", "+refs/heads/"+branch+":refs/remotes/origin/"+branch); err != nil {
+				style.PrintWarning("neighbour checkout %s: fetching %s: %v", n, branch, err)
+			}
+		}
+		ref, _, err := projectmap.BranchRef(bare, source)
 		if err != nil {
 			style.PrintWarning("neighbour checkout %s skipped: %v", n, err)
 			continue
@@ -161,12 +194,34 @@ func SetupNeighbourCheckouts(townRoot, rigName, polecatDir string) []NeighbourCh
 	// Drop checkouts of rigs that are no longer wanted.
 	if entries, err := os.ReadDir(dir); err == nil {
 		for _, e := range entries {
-			if !keep[e.Name()] {
+			if !keep[e.Name()] && e.IsDir() {
 				removeNeighbour(filepath.Join(townRoot, e.Name(), ".repo.git"), filepath.Join(dir, e.Name()))
 			}
 		}
 	}
+	marker := filepath.Join(dir, neighbourBranchFile)
+	if branch != "" && len(out) > 0 {
+		if err := os.WriteFile(marker, []byte(branch+"\n"), 0644); err != nil {
+			style.PrintWarning("neighbour checkouts: %v", err)
+		}
+	} else {
+		_ = os.Remove(marker)
+	}
 	return out
+}
+
+// neighbourBranchFile records the feature branch of a polecat's feature
+// neighbours, so prime can say what the snapshots contain.
+const neighbourBranchFile = ".feature-branch"
+
+// NeighbourFeatureBranch returns the feature branch the polecat's neighbour
+// checkouts were taken from, "" when they are default branch snapshots.
+func NeighbourFeatureBranch(polecatDir string) string {
+	data, err := os.ReadFile(filepath.Join(NeighboursDir(polecatDir), neighbourBranchFile))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
 }
 
 // CleanupNeighbourCheckouts removes every neighbour checkout of a polecat and
@@ -180,8 +235,11 @@ func CleanupNeighbourCheckouts(townRoot, polecatDir string) {
 	}
 	setWritable(dir, true)
 	for _, e := range entries {
-		removeNeighbour(filepath.Join(townRoot, e.Name(), ".repo.git"), filepath.Join(dir, e.Name()))
+		if e.IsDir() {
+			removeNeighbour(filepath.Join(townRoot, e.Name(), ".repo.git"), filepath.Join(dir, e.Name()))
+		}
 	}
+	_ = os.Remove(filepath.Join(dir, neighbourBranchFile))
 	_ = os.Remove(dir)
 }
 

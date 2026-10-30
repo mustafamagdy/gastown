@@ -129,7 +129,11 @@ func renderNeighbourCheckouts(townRoot, rig, polecatName string) string {
 		}
 		fmt.Fprintf(&b, "Read-only code: %s (%s)\n", filepath.ToSlash(rel), c.Commit)
 	}
-	b.WriteString("These are read-only snapshots of each neighbour's default branch for reading contracts and call sites, not for edits.\n")
+	if branch := polecat.NeighbourFeatureBranch(polecatDir); branch != "" {
+		fmt.Fprintf(&b, "Rigs of your feature are at branch %s, with work sibling tasks have merged; other rigs are at their default branch. Read them to match contracts and call sites; do not edit them.\n", branch)
+	} else {
+		b.WriteString("These are read-only snapshots of each neighbour's default branch for reading contracts and call sites, not for edits.\n")
+	}
 	return b.String()
 }
 
