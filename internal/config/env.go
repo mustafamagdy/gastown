@@ -104,8 +104,10 @@ func AgentEnv(cfg AgentEnvConfig) map[string]string {
 	// protected identity/session names are filtered out at resolve time.
 	if cfg.TownRoot != "" {
 		if org := OrgEnvForTown(cfg.TownRoot); org != nil {
-			for k, v := range org.Vars {
-				env[k] = v
+			// Values go to a private file the startup command sources; only
+			// its path is exported, so secrets stay off command lines.
+			if org.File != "" {
+				env["GT_ORG_ENV_FILE"] = org.File
 			}
 		}
 	}
@@ -826,7 +828,7 @@ func ExportPrefix(env map[string]string) string {
 	for _, k := range keys {
 		parts = append(parts, fmt.Sprintf("%s=%s", k, ShellQuote(env[k])))
 	}
-	return "export " + strings.Join(parts, " ") + " && "
+	return OrgEnvSourcePrefix(env) + "export " + strings.Join(parts, " ") + " && "
 }
 
 // BuildStartupCommandWithEnv builds a startup command with the given environment variables.
@@ -882,6 +884,13 @@ func WithoutEnv(env map[string]string, keys ...string) map[string]string {
 // This is useful for setting cmd.Env on exec.Command.
 func EnvForExecCommand(env map[string]string) []string {
 	result := os.Environ()
+	// No shell to source the org env file here, so apply its vars directly
+	// (process env, not a command line). Explicit env entries come after.
+	if root := env["GT_ROOT"]; root != "" && env["GT_ORG_ENV_FILE"] != "" {
+		if org := OrgEnvForTown(root); org != nil {
+			result = org.Environ(result)
+		}
+	}
 	for k, v := range env {
 		result = append(result, k+"="+v)
 	}

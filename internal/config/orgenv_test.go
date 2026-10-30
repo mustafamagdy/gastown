@@ -2,8 +2,10 @@ package config
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -207,31 +209,111 @@ func TestTownSettingsOrgEnvRoundTrip(t *testing.T) {
 	}
 }
 
-func TestAgentEnvIncludesOrgEnv(t *testing.T) {
+func orgTown(t *testing.T, dotenv string) string {
+	t.Helper()
 	ResetOrgEnvCache()
 	t.Cleanup(ResetOrgEnvCache)
 	townRoot := t.TempDir()
-	envFile := writeDotenv(t, "GH_TOKEN=org-token\nGT_ROLE=evil\nBD_ACTOR=evil\n")
 	s := NewTownSettings()
-	s.OrgEnv = &OrgEnvConfig{File: envFile}
+	s.OrgEnv = &OrgEnvConfig{File: writeDotenv(t, dotenv)}
 	if err := SaveTownSettings(TownSettingsPath(townRoot), s); err != nil {
 		t.Fatal(err)
 	}
+	return townRoot
+}
 
+func TestAgentEnvOrgEnvFileNotValues(t *testing.T) {
+	townRoot := orgTown(t, "GH_TOKEN=s3cr3t-token\nGT_ROLE=evil\n")
 	for _, role := range []string{"mayor", "polecat"} {
 		env := AgentEnv(AgentEnvConfig{Role: role, Rig: "r", AgentName: "a", TownRoot: townRoot})
-		if env["GH_TOKEN"] != "org-token" {
-			t.Errorf("%s: GH_TOKEN = %q", role, env["GH_TOKEN"])
+		if _, ok := env["GH_TOKEN"]; ok {
+			t.Errorf("%s: org var value must not be in AgentEnv", role)
 		}
-		if env["GT_ROLE"] == "evil" || env["BD_ACTOR"] == "evil" {
-			t.Errorf("%s: org env overrode identity: %q %q", role, env["GT_ROLE"], env["BD_ACTOR"])
+		if env["GT_ORG_ENV_FILE"] != OrgEnvFilePath(townRoot) {
+			t.Errorf("%s: GT_ORG_ENV_FILE = %q", role, env["GT_ORG_ENV_FILE"])
+		}
+		if env["GT_ROLE"] == "evil" {
+			t.Errorf("%s: org env overrode identity", role)
 		}
 	}
-
 	// A town without org_env is unaffected.
-	other := t.TempDir()
-	if env := AgentEnv(AgentEnvConfig{Role: "mayor", TownRoot: other}); env["GH_TOKEN"] != "" {
-		t.Error("GH_TOKEN leaked into a town without org_env")
+	if env := AgentEnv(AgentEnvConfig{Role: "mayor", TownRoot: t.TempDir()}); env["GT_ORG_ENV_FILE"] != "" {
+		t.Error("GT_ORG_ENV_FILE set for a town without org_env")
+	}
+}
+
+func TestOrgEnvFileContentAndMode(t *testing.T) {
+	townRoot := orgTown(t, "PLAIN=a\nQUOTE=it's \"here\"\nSPACE=a b  c\nDOLLAR=$HOME`x`\n")
+	if OrgEnvForTown(townRoot) == nil {
+		t.Fatal("no org env")
+	}
+	path := OrgEnvFilePath(townRoot)
+	st, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Mode().Perm() != 0o600 {
+		t.Errorf("file mode %v", st.Mode().Perm())
+	}
+	dst, _ := os.Stat(filepath.Dir(path))
+	if dst.Mode().Perm() != 0o700 {
+		t.Errorf("dir mode %v", dst.Mode().Perm())
+	}
+	// Round-trip through a real shell, including a newline value.
+	env := &OrgEnv{Vars: map[string]string{"NL": "line1\nline2 'q'", "BAD-NAME": "x", "OK": "$(echo no)"}}
+	if err := writeOrgEnvFile(path, env); err != nil {
+		t.Fatal(err)
+	}
+	out, err := exec.Command("sh", "-c", `. "$1"; printf '%s|%s|%s' "$NL" "$OK" "${BAD_NAME-unset}"`, "sh", path).Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := string(out), "line1\nline2 'q'|$(echo no)|unset"; got != want {
+		t.Errorf("sourced %q, want %q", got, want)
+	}
+}
+
+func TestStartupCommandsNeverCarryOrgValues(t *testing.T) {
+	const secret = "s3cr3t-token-value"
+	townRoot := orgTown(t, "GH_TOKEN="+secret+"\nGIT_CEILING_DIRECTORIES=/org/ceiling\nPATH=/org/bin:/usr/bin\n")
+	env := AgentEnv(AgentEnvConfig{Role: "mayor", TownRoot: townRoot})
+	file := OrgEnvFilePath(townRoot)
+	src := "[ -r '" + file + "' ] && . '" + file + "'; "
+
+	cmds := map[string]string{
+		"ExportPrefix":               ExportPrefix(env),
+		"BuildStartupCommandWithEnv": BuildStartupCommandWithEnv(env, "claude", "hi"),
+		"PrependEnv":                 PrependEnv("claude", env),
+		"BuildStartupCommand":        BuildStartupCommand(env, "", ""),
+	}
+	for name, cmd := range cmds {
+		if strings.Contains(cmd, secret) || strings.Contains(cmd, "/org/bin") || strings.Contains(cmd, "/org/ceiling") {
+			t.Errorf("%s leaked org values: %s", name, cmd)
+		}
+		si := strings.Index(cmd, src)
+		ei := strings.Index(cmd, "GIT_CEILING_DIRECTORIES=")
+		if si != 0 {
+			t.Errorf("%s: source prefix not first: %s", name, cmd)
+		}
+		if ei < 0 || ei < si {
+			t.Errorf("%s: gt exports must follow the source: %s", name, cmd)
+		}
+	}
+	// gt's GIT_CEILING_DIRECTORIES wins over the org file when run by a shell.
+	out, err := exec.Command("sh", "-c", ExportPrefix(env)+`printf '%s|%s' "$GIT_CEILING_DIRECTORIES" "$GH_TOKEN"`).Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := string(out), townRoot+"|"+secret; got != want {
+		t.Errorf("shell result %q, want %q", got, want)
+	}
+}
+
+func TestEnvForExecCommandAppliesOrgEnv(t *testing.T) {
+	townRoot := orgTown(t, "ORG_ONLY=yes\n")
+	env := AgentEnv(AgentEnvConfig{Role: "mayor", TownRoot: townRoot})
+	if !slices.Contains(EnvForExecCommand(env), "ORG_ONLY=yes") {
+		t.Error("exec env missing org var")
 	}
 }
 
@@ -247,6 +329,9 @@ func TestOrgEnvForTown_FailureIsNonFatalAndCached(t *testing.T) {
 	if OrgEnvForTown(townRoot) != nil {
 		t.Error("expected nil on failure")
 	}
+	if _, err := os.Stat(OrgEnvFilePath(townRoot)); err == nil {
+		t.Error("no file should be written on failure")
+	}
 	// Create the file now: the cached failure still holds for this process.
 	if err := os.WriteFile(filepath.Join(townRoot, "missing.env"), []byte("A=1\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -254,7 +339,7 @@ func TestOrgEnvForTown_FailureIsNonFatalAndCached(t *testing.T) {
 	if OrgEnvForTown(townRoot) != nil {
 		t.Error("result should be cached for the process")
 	}
-	if env := AgentEnv(AgentEnvConfig{Role: "mayor", TownRoot: townRoot}); env["A"] != "" {
+	if env := AgentEnv(AgentEnvConfig{Role: "mayor", TownRoot: townRoot}); env["GT_ORG_ENV_FILE"] != "" {
 		t.Error("AgentEnv should work without org env")
 	}
 }

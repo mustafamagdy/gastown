@@ -8,6 +8,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -52,6 +54,10 @@ type OrgEnv struct {
 	// Vars are the variables to apply on top of an agent's env. PATH, when
 	// present, is already merged (new entries prepended, none dropped).
 	Vars map[string]string
+	// File is the private shell file the vars were written to by
+	// OrgEnvForTown (empty when not written). Agent startup commands source
+	// it instead of carrying the secret values on the command line.
+	File string
 }
 
 // Names returns the variable names, sorted. Values are never exposed this way.
@@ -293,6 +299,68 @@ func LoadOrgEnv(townRoot string) (*OrgEnv, error) {
 	return ResolveOrgEnvConfig(settings.OrgEnv, os.Environ())
 }
 
+// OrgEnvFilePath is where a town's resolved org env is written for agents to
+// source. It lives under .runtime/, which is gitignored.
+func OrgEnvFilePath(townRoot string) string {
+	return filepath.Join(townRoot, ".runtime", "org-env.sh")
+}
+
+var shellVarName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+// shellSingleQuote quotes s for POSIX sh, always with single quotes.
+func shellSingleQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
+// renderOrgEnvFile renders one `export KEY='value'` line per var, sorted.
+func renderOrgEnvFile(env *OrgEnv) string {
+	var b strings.Builder
+	for _, k := range env.Names() {
+		if !shellVarName.MatchString(k) {
+			continue
+		}
+		b.WriteString("export " + k + "=" + shellSingleQuote(env.Vars[k]) + "\n")
+	}
+	return b.String()
+}
+
+// writeOrgEnvFile atomically writes the org env file (dir 0700, file 0600).
+func writeOrgEnvFile(path string, env *OrgEnv) error {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(dir, ".org-env-*.tmp")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name()) // no-op after a successful rename
+	if err := tmp.Chmod(0o600); err != nil {
+		tmp.Close()
+		return err
+	}
+	if _, err := tmp.WriteString(renderOrgEnvFile(env)); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmp.Name(), path)
+}
+
+// OrgEnvSourcePrefix returns the shell snippet that loads the org env file
+// named by GT_ORG_ENV_FILE in env, or "" when there is none. Builders emit it
+// BEFORE gt's own exports so gt's variables still win.
+func OrgEnvSourcePrefix(env map[string]string) string {
+	f := env["GT_ORG_ENV_FILE"]
+	if f == "" || runtime.GOOS == "windows" {
+		return ""
+	}
+	q := shellSingleQuote(f)
+	return "[ -r " + q + " ] && . " + q + "; "
+}
+
 type orgEnvCacheEntry struct {
 	env *OrgEnv
 }
@@ -316,8 +384,17 @@ func OrgEnvForTown(townRoot string) *OrgEnv {
 	}
 	env, err := LoadOrgEnv(townRoot)
 	if err != nil {
+		// An existing org-env.sh is left alone but not referenced.
 		fmt.Fprintf(os.Stderr, "warning: org env unavailable, agents start without it: %v\n", err)
 		env = nil
+	} else if env != nil && len(env.Vars) > 0 {
+		path := OrgEnvFilePath(townRoot)
+		if werr := writeOrgEnvFile(path, env); werr != nil {
+			fmt.Fprintf(os.Stderr, "warning: org env not written, agents start without it: %v\n", werr)
+			env = nil
+		} else {
+			env.File = path
+		}
 	}
 	orgEnvCache[townRoot] = &orgEnvCacheEntry{env: env}
 	return env

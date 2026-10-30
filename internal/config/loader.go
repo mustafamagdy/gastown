@@ -2351,7 +2351,7 @@ func BuildStartupCommand(envVars map[string]string, rigPath, prompt string) stri
 			// replaces the shell. This allows WaitForCommand to detect the
 			// running agent via pane_current_command (which shows the direct
 			// process, not child processes).
-			cmd = "exec env " + strings.Join(exports, " ") + " "
+			cmd = OrgEnvSourcePrefix(resolvedEnv) + "exec env " + strings.Join(exports, " ") + " "
 		}
 
 		// Insert exec wrapper between env vars and agent command if configured.
@@ -2429,7 +2429,7 @@ func PrependEnv(command string, envVars map[string]string) string {
 	if runtime.GOOS == "windows" {
 		return strings.Join(exports, "; ") + "; " + command
 	}
-	return "export " + strings.Join(exports, " ") + " && " + command
+	return OrgEnvSourcePrefix(envVars) + "export " + strings.Join(exports, " ") + " && " + command
 }
 
 // BuildStartupCommandWithAgentOverride builds a startup command like BuildStartupCommand,
@@ -2598,7 +2598,7 @@ func BuildStartupCommandWithAgentOverride(envVars map[string]string, rigPath, pr
 		sort.Strings(exports)
 
 		if len(exports) > 0 {
-			cmd = "exec env " + strings.Join(exports, " ") + " "
+			cmd = OrgEnvSourcePrefix(resolvedEnv) + "exec env " + strings.Join(exports, " ") + " "
 		}
 
 		if len(rc.ExecWrapper) > 0 {

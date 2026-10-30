@@ -91,12 +91,17 @@ are new are prepended, existing ones are kept.
 }
 ```
 
-`config.AgentEnv` adds the org environment at the lowest priority, so every
-agent session of the town gets it (mayor, deacon, dogs, witness, refinery,
-polecats, crew), and gt's own variables always win. It is resolved once per gt
-process and cached, because direnv can be slow. A failure prints one warning
-to stderr and agents start without the org environment; agent start is never
-blocked. Logs and output carry variable names and counts only, never values.
+The resolved variables are written to `<town>/.runtime/org-env.sh` (directory
+0700, file 0600, atomic rewrite, one `export KEY='value'` line per variable).
+`config.AgentEnv` only sets `GT_ORG_ENV_FILE=<that path>`; every startup
+command builder emits `[ -r '<file>' ] && . '<file>'; ` before gt's own
+exports, so every agent session of the town gets the org environment (mayor,
+deacon, dogs, witness, refinery, polecats, crew) and gt's own variables still
+win. Secret values never appear on a command line (`ps`) or in herdr state.
+It is resolved once per gt process and cached, because direnv can be slow. A
+failure prints one warning to stderr, leaves any existing file unreferenced,
+and agents start without the org environment; agent start is never blocked.
+Output carries variable names and counts only, never values.
 
 `gt org env [--json]` prints the source and the resolved variable names.
 
@@ -272,8 +277,8 @@ tests.
 
 Each town lists the AXI tools it needs in the `axi_tools` setting: tool names,
 each optionally pinned as `name@version` (see the snippet under "Org =
-town"). `contrib/fork-host/install-axi.sh` installs the pinned versions. gt
-merges their session-start context into `gt prime`.
+town"). `contrib/fork-host/install-axi.sh` installs the pinned versions. Merging their
+session-start context into `gt prime` is planned (phase 2b), not implemented yet.
 
 `gt doctor` runs two checks:
 
