@@ -1523,6 +1523,61 @@ func isDoltSQLServerArgs(args []string) bool {
 	return len(args) >= 2 && filepath.Base(args[0]) == "dolt" && args[1] == "sql-server"
 }
 
+// KillLeakedTestServers terminates dolt sql-servers leaked by go test runs:
+// bd auto-starts a server for a test's t.TempDir() .beads, the test exits, the
+// temp dir is removed, and the server lives on as an orphan (hq-j47). Dozens
+// of these exhausted host memory and got the town's Dolt OOM-killed.
+//
+// A process is reaped only when all of these hold: it is a dolt sql-server,
+// its parent is init (orphaned), and its cwd is a deleted directory under the
+// system temp dir. Town servers never match: their data dir still exists.
+// Returns the PIDs that were sent SIGTERM.
+func KillLeakedTestServers() []int {
+	if runtime.GOOS != "linux" {
+		return nil // relies on /proc cwd "(deleted)" markers
+	}
+	cmd := exec.Command("ps", "-eo", "pid,ppid,args")
+	setProcessGroup(cmd)
+	out, err := cmd.Output()
+	if err != nil {
+		return nil
+	}
+	var killed []int
+	for _, pid := range findLeakedTestServersFromPS(string(out), os.TempDir(), getProcessCWD) {
+		proc, err := os.FindProcess(pid)
+		if err != nil {
+			continue
+		}
+		if err := proc.Signal(syscall.SIGTERM); err == nil {
+			killed = append(killed, pid)
+		}
+	}
+	return killed
+}
+
+// findLeakedTestServersFromPS parses `ps -eo pid,ppid,args` output and returns
+// orphaned dolt sql-server PIDs whose cwd is a deleted dir under tempDir.
+func findLeakedTestServersFromPS(output, tempDir string, cwdOf func(int) string) []int {
+	tempDir = filepath.Clean(tempDir)
+	var pids []int
+	for _, line := range strings.Split(output, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 4 || fields[1] != "1" || !isDoltSQLServerArgs(fields[2:]) {
+			continue
+		}
+		pid, err := strconv.Atoi(fields[0])
+		if err != nil || pid <= 0 {
+			continue
+		}
+		cwd, deleted := strings.CutSuffix(cwdOf(pid), " (deleted)")
+		if !deleted || !strings.HasPrefix(cwd, tempDir+string(filepath.Separator)) {
+			continue
+		}
+		pids = append(pids, pid)
+	}
+	return pids
+}
+
 // CheckPortAvailable verifies that a TCP port is free for use as a Dolt server.
 // Returns a user-friendly error if the port is already in use.
 func CheckPortAvailable(port int) error {

@@ -2038,6 +2038,12 @@ func TestIntegration(t *testing.T) {
 
 	b := New(dir)
 
+	// TestMain disables bd's server auto-start (hq-j47), so without a running
+	// server for this repo there is nothing to integrate with.
+	if _, err := b.List(ListOptions{Status: "open"}); err != nil && strings.Contains(err.Error(), "Dolt server unreachable") {
+		t.Skipf("no reachable Dolt server for %s", beadsDir)
+	}
+
 	// Test List
 	t.Run("List", func(t *testing.T) {
 		issues, err := b.List(ListOptions{Status: "open"})

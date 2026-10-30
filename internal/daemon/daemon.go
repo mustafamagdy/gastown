@@ -1007,6 +1007,12 @@ func (d *Daemon) heartbeat(state *State) {
 	// This is a safety net - Deacon patrol also does this more frequently.
 	d.cleanupOrphanedProcesses()
 
+	// 13a. Kill dolt sql-servers leaked by go test runs (hq-j47). They pile up
+	// as orphans with deleted temp-dir cwds until the host OOM-kills Dolt.
+	if pids := doltserver.KillLeakedTestServers(); len(pids) > 0 {
+		d.logger.Printf("Leaked test dolt servers: sent SIGTERM to %d (%v)", len(pids), pids)
+	}
+
 	// 13. Prune stale local polecat tracking branches across all rig clones.
 	// When polecats push branches to origin, other clones create local tracking
 	// branches via git fetch. After merge, remote branches are deleted but local

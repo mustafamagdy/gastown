@@ -329,6 +329,39 @@ func TestFindOwnedDoltTestServerCandidatesFromPS(t *testing.T) {
 	}
 }
 
+func TestFindLeakedTestServersFromPS(t *testing.T) {
+	output := strings.Join([]string{
+		"  PID  PPID COMMAND",
+		"201 1 dolt sql-server -H 127.0.0.1 -P 43229 --loglevel=warning",
+		"202 1 dolt sql-server --config /home/u/gt/.dolt-data/config.yaml",
+		"203 999 dolt sql-server -H 127.0.0.1 -P 39967",
+		"204 1 /usr/local/bin/dolt sql-server -P 40001",
+		"205 1 dolt sql-server -P 40002",
+		"206 1 dolt sql-server -P 40003",
+		"207 1 bash -c dolt sql-server",
+	}, "\n")
+	cwds := map[int]string{
+		201: "/tmp/TestFoo123/001/.beads/dolt (deleted)", // leaked: orphan, deleted temp dir
+		202: "/home/u/gt/.dolt-data",                     // town server
+		203: "/tmp/TestBar/001/.beads/dolt (deleted)",    // parent still alive
+		204: "/tmp/TestBaz/001/.beads/dolt (deleted)",    // leaked, absolute dolt path
+		205: "/tmp/TestQux/001/.beads/dolt",              // temp dir still exists
+		206: "/home/u/tmp/x/.beads/dolt (deleted)",       // deleted, but not under temp dir
+		207: "/tmp/TestSh (deleted)",                     // not dolt
+	}
+
+	got := findLeakedTestServersFromPS(output, "/tmp", func(pid int) string { return cwds[pid] })
+	want := []int{201, 204}
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("got %v, want %v", got, want)
+		}
+	}
+}
+
 func TestReapOwnedTestServersRefusesNonTempRoot(t *testing.T) {
 	if _, err := ReapOwnedTestServers(string(filepath.Separator)); err == nil {
 		t.Fatal("expected non-temp root to be rejected")
