@@ -23,6 +23,7 @@ var (
 	projectCreateDocs        string
 	projectCreateMemory      string
 	projectCreateDescription string
+	projectCreateOnDemand    bool
 	projectAddRigMove        bool
 	projectListJSON          bool
 	projectShowJSON          bool
@@ -112,6 +113,7 @@ func init() {
 	projectCreateCmd.Flags().StringVar(&projectCreateDocs, "docs", "", "Path to the project docs folder (may use ~)")
 	projectCreateCmd.Flags().StringVar(&projectCreateMemory, "memory", "", "Agent-brain memory key (e.g. mbg/xelta)")
 	projectCreateCmd.Flags().StringVar(&projectCreateDescription, "description", "", "Short project description")
+	projectCreateCmd.Flags().BoolVar(&projectCreateOnDemand, "on-demand", true, "Run rig witness/refinery only while the rig has work (--on-demand=false keeps them always on)")
 	_ = projectCreateCmd.MarkFlagRequired("prefix")
 
 	projectAddRigCmd.Flags().BoolVar(&projectAddRigMove, "move", false, "Move rigs that already belong to another project")
@@ -150,6 +152,10 @@ func runProjectCreate(cmd *cobra.Command, args []string) error {
 		Docs:        projectCreateDocs,
 		Memory:      projectCreateMemory,
 		Description: projectCreateDescription,
+	}
+	if !projectCreateOnDemand {
+		off := false
+		cfg.OnDemand = &off
 	}
 	if err := createProject(townRoot, cfg, false); err != nil {
 		return err

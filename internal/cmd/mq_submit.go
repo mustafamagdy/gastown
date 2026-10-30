@@ -271,6 +271,9 @@ func runMqSubmit(cmd *cobra.Command, args []string) error {
 			style.PrintWarning("MR bead prefix mismatch: %v\nThe refinery may not find this MR — check 'gt mq list %s'", prefixErr, rigName)
 		}
 
+		// On-demand rigs: make sure the refinery is up before nudging it.
+		ensureOnDemandRefinery(townRoot, rigName)
+
 		// Nudge refinery to pick up the new MR
 		nudgeRefinery(rigName, "MERGE_READY received - check inbox for pending work")
 

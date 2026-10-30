@@ -117,6 +117,15 @@ type Daemon struct {
 	// Only accessed from heartbeat loop goroutine - no sync needed.
 	mayorZombieCount int
 
+	// onDemandLastWork records, per "role:rig", when an on-demand rig last had
+	// work while its agent was running. In-memory only: after a daemon restart
+	// the clock starts at the first observation, so nothing is killed at once.
+	onDemandMu       sync.Mutex
+	onDemandLastWork map[string]time.Time
+	// onDemandNow and onDemandPendingMRs are test seams (nil = real).
+	onDemandNow        func() time.Time
+	onDemandPendingMRs func(rigName string) (bool, error)
+
 	// rigPool runs per-rig heartbeat operations (witness checks, refinery checks,
 	// polecat health, idle reaping, branch pruning) with bounded concurrency and
 	// per-rig context timeouts so one slow rig cannot block all others.
@@ -1764,6 +1773,11 @@ func (d *Daemon) ensureWitnessRunning(rigName string) {
 		return
 	}
 
+	// On-demand rigs (rigs in a project) run a witness only while they have work.
+	if agentconfig.RigOnDemand(d.config.TownRoot, rigName) && !d.onDemandShouldRun(rigName, "witness") {
+		return
+	}
+
 	// Manager.Start() handles: zombie detection, session creation, env vars, theming,
 	// startup readiness waits, and crucially - startup/propulsion nudges (GUPP).
 	// It returns ErrAlreadyRunning if Claude is already running in tmux.
@@ -1842,7 +1856,13 @@ func (d *Daemon) ensureRefineryRunning(rigName string) {
 	// If a refinery session is already running, Start() returns ErrAlreadyRunning (cheap).
 	// But spawning a NEW session with an empty queue burns API credits for nothing.
 	// The refinery formula uses await-event internally, so it will wake when events appear.
-	if !d.hasPendingEvents("refinery") {
+	if agentconfig.RigOnDemand(d.config.TownRoot, rigName) {
+		// On-demand rigs use per-rig work detection instead of the town-wide
+		// event gate, and stop an idle refinery after the grace period.
+		if !d.onDemandShouldRun(rigName, "refinery") {
+			return
+		}
+	} else if !d.hasPendingEvents("refinery") {
 		// Check if session already exists before skipping — let running sessions continue
 		r := &rig.Rig{
 			Name: rigName,

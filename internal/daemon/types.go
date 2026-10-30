@@ -32,7 +32,15 @@ type Config struct {
 
 	// PidFile is the path to the PID file.
 	PidFile string `json:"pid_file"`
+
+	// OnDemandIdleGrace is how long an on-demand rig (a rig in a project) may
+	// have no work before its witness/refinery is stopped. Zero means the
+	// default (DefaultOnDemandIdleGrace).
+	OnDemandIdleGrace time.Duration `json:"on_demand_idle_grace,omitempty"`
 }
+
+// DefaultOnDemandIdleGrace is the default idle grace period for on-demand rigs.
+const DefaultOnDemandIdleGrace = 10 * time.Minute
 
 // DefaultConfig returns the default daemon configuration.
 func DefaultConfig(townRoot string) *Config {

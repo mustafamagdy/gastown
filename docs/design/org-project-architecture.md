@@ -108,9 +108,35 @@ always-on agents. In this fork:
 
 ### Rigs on demand
 
-Rigs in a project have no always-on agents. A rig becomes active when work is
-slung to it (a polecat or crew starts there) and goes idle when it has none.
+Rigs in a project run their witness and refinery only while they have work.
 Registration is cheap: a bare clone shared through local git objects.
+
+- **Switch:** `on_demand` in `project.json` (absent means true;
+  `gt project create --on-demand=false` keeps the project's rigs always-on).
+  Rigs outside a project behave as upstream: always-on.
+- **Witness has work** when the rig has at least one non-hidden directory under
+  `<rig>/polecats/`.
+- **Refinery has work** when a pending `events/refinery/*.event` names the rig
+  (`payload.rig`) or the rig has polecats (they will submit MRs). Open MR
+  beads are not polled on every heartbeat (too costly across ~120 rigs); they
+  are checked only before a refinery is stopped.
+- **Daemon:** on each heartbeat an on-demand rig's witness/refinery is started
+  only if it has work. An agent that has had no work for the idle grace
+  period (default 10 minutes, `on_demand_idle_grace` in the daemon config) is
+  stopped with the same kill path used for parked rigs, but the rig is not
+  parked or docked. The last-work time lives in daemon memory; after a daemon
+  restart the clock starts at the first observation, so nothing is killed
+  immediately. A witness is never stopped while polecats exist, and a refinery
+  never while open or in-progress MRs exist (or while a safety stop applies).
+- **Fast start:** spawning a polecat into an on-demand rig starts its witness
+  immediately, and `gt mq submit` starts the refinery before nudging it,
+  instead of waiting for the next heartbeat. Failures are logged and the
+  daemon retries.
+- **`gt up`** skips idle on-demand rigs and prints `on demand (idle)`.
+- **Visibility:** `gt rig list` and `gt rig status` show `on demand (idle)`
+  instead of `stopped` for idle on-demand rigs.
+- **Manual override:** `gt rig start` / `gt rig boot` still start the agents.
+  The daemon may stop them again once the grace period passes with no work.
 
 ## Project brain (shared knowledge)
 

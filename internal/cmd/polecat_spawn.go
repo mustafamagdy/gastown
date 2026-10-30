@@ -100,6 +100,16 @@ func reclaimBrokenIdlePolecatForSling(polecatMgr *polecat.Manager) (bool, error)
 // This is used by gt sling when the target is a rig name.
 // The caller (sling) handles hook attachment and nudging.
 func SpawnPolecatForSling(rigName string, opts SlingSpawnOptions) (*SpawnedPolecatInfo, error) {
+	info, err := spawnPolecatForSlingInner(rigName, opts)
+	if err == nil && info != nil {
+		// On-demand rigs: the polecat now exists, so bring the witness up
+		// right away instead of waiting for the next daemon heartbeat.
+		ensureOnDemandWitness(opts.TownRoot, rigName)
+	}
+	return info, err
+}
+
+func spawnPolecatForSlingInner(rigName string, opts SlingSpawnOptions) (*SpawnedPolecatInfo, error) {
 	// Find workspace
 	townRoot := opts.TownRoot
 	if townRoot == "" {

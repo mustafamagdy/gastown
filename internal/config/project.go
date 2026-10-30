@@ -27,6 +27,15 @@ type ProjectConfig struct {
 	Docs        string `json:"docs,omitempty"`        // path to the project docs folder (may use ~)
 	Memory      string `json:"memory,omitempty"`      // agent-brain key, e.g. "mbg/xelta"
 	Description string `json:"description,omitempty"` // short human description
+
+	// OnDemand makes the project's rigs run their witness and refinery only
+	// while they have work. nil means true (the default for projects).
+	OnDemand *bool `json:"on_demand,omitempty"`
+}
+
+// IsOnDemand reports whether the project's rigs run agents on demand (default true).
+func (p *ProjectConfig) IsOnDemand() bool {
+	return p == nil || p.OnDemand == nil || *p.OnDemand
 }
 
 // projectPrefixRegexp mirrors the beads prefix rules used for rigs: starts with
@@ -187,4 +196,20 @@ func RigsInProject(rigsConfig *RigsConfig, project string) []string {
 	}
 	sort.Strings(names)
 	return names
+}
+
+// RigOnDemand reports whether a rig runs its witness and refinery only while
+// it has work: true iff the rig belongs to a project whose OnDemand is unset
+// or true. Rigs outside projects (or with unreadable project config) are
+// always-on, matching upstream behaviour.
+func RigOnDemand(townRoot, rigName string) bool {
+	project, err := ProjectForRig(townRoot, rigName)
+	if err != nil || project == "" {
+		return false
+	}
+	cfg, err := LoadProjectConfig(townRoot, project)
+	if err != nil {
+		return false
+	}
+	return cfg.IsOnDemand()
 }

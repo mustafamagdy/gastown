@@ -981,6 +981,7 @@ func nudgeRefinery(rigName, message string) {
 	if townRoot != "" {
 		_, _ = channelevents.EmitToTown(townRoot, "refinery", "MQ_SUBMIT", []string{
 			"source=sling",
+			"rig=" + rigName,
 			"message=" + message,
 		})
 	}

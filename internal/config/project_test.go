@@ -184,3 +184,22 @@ func TestAgentEnv_Project(t *testing.T) {
 		t.Errorf("explicit project: got %q", env["GT_PROJECT"])
 	}
 }
+
+func TestRigOnDemand(t *testing.T) {
+	t.Parallel()
+	townRoot := t.TempDir()
+	off := false
+	if err := SaveProjectConfig(townRoot, &ProjectConfig{Name: "xelta", Prefix: "xe"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveProjectConfig(townRoot, &ProjectConfig{Name: "legacy", Prefix: "lg", OnDemand: &off}); err != nil {
+		t.Fatal(err)
+	}
+	writeTestRigs(t, townRoot, map[string]string{"a": "xelta", "b": "legacy", "c": "", "d": "missing"})
+
+	for rig, want := range map[string]bool{"a": true, "b": false, "c": false, "d": false, "unknown": false} {
+		if got := RigOnDemand(townRoot, rig); got != want {
+			t.Errorf("RigOnDemand(%q) = %v, want %v", rig, got, want)
+		}
+	}
+}

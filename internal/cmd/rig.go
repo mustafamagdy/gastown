@@ -799,6 +799,14 @@ func runRigList(cmd *cobra.Command, args []string) error {
 		if refineryRunning {
 			refineryStatus = "running"
 		}
+		if config.RigOnDemand(townRoot, name) {
+			if !witnessRunning && !rig.WitnessHasWork(townRoot, name) {
+				witnessStatus = onDemandIdleDetail
+			}
+			if !refineryRunning && !rig.RefineryHasWork(townRoot, name) {
+				refineryStatus = onDemandIdleDetail
+			}
+		}
 
 		summary := r.Summary()
 		rigs = append(rigs, rigInfo{
@@ -2008,6 +2016,8 @@ func runRigStatus(cmd *cobra.Command, args []string) error {
 	fmt.Printf("%s\n", style.Bold.Render("Witness"))
 	if witnessRunning {
 		fmt.Printf("  %s running\n", style.Success.Render("●"))
+	} else if config.RigOnDemand(townRoot, rigName) && !rig.WitnessHasWork(townRoot, rigName) {
+		fmt.Printf("  %s %s\n", style.Dim.Render("○"), onDemandIdleDetail)
 	} else {
 		fmt.Printf("  %s stopped\n", style.Dim.Render("○"))
 	}
@@ -2020,6 +2030,8 @@ func runRigStatus(cmd *cobra.Command, args []string) error {
 		if len(refineryQueue) > 0 {
 			fmt.Printf("  Queue: %d items\n", len(refineryQueue))
 		}
+	} else if config.RigOnDemand(townRoot, rigName) && !rig.RefineryHasWork(townRoot, rigName) {
+		fmt.Printf("  %s %s\n", style.Dim.Render("○"), onDemandIdleDetail)
 	} else {
 		fmt.Printf("  %s stopped\n", style.Dim.Render("○"))
 	}

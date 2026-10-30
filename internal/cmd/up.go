@@ -778,6 +778,17 @@ func startRigAgentsWithPrefetch(rigNames []string, prefetchedRigs map[string]*ri
 	return
 }
 
+// onDemandIdleDetail is the status shown by gt up for an on-demand rig whose
+// agent was not started because the rig has no work.
+const onDemandIdleDetail = "on demand (idle)"
+
+// upOnDemandIdle reports whether gt up should skip an agent: the rig is
+// on-demand (in a project) and hasWork says it has nothing to do.
+func upOnDemandIdle(rigName string, r *rig.Rig, hasWork func(townRoot, rigName string) bool) bool {
+	townRoot := filepath.Dir(r.Path)
+	return config.RigOnDemand(townRoot, rigName) && !hasWork(townRoot, rigName)
+}
+
 // upStartWitness starts a witness for the given rig and returns a result struct.
 // Respects parked/docked status - skips starting if rig is not operational.
 func upStartWitness(rigName string, r *rig.Rig) agentStartResult {
@@ -792,6 +803,10 @@ func upStartWitness(rigName string, r *rig.Rig) agentStartResult {
 		if blocked, reason := IsRigParkedOrDocked(townRoot, rigName); blocked {
 			return agentStartResult{name: name, ok: true, detail: fmt.Sprintf("skipped (rig %s)", reason)}
 		}
+	}
+
+	if upOnDemandIdle(rigName, r, rig.WitnessHasWork) {
+		return agentStartResult{name: name, ok: true, detail: onDemandIdleDetail}
 	}
 
 	mgr := witness.NewManager(r)
@@ -818,6 +833,10 @@ func upStartRefinery(rigName string, r *rig.Rig) agentStartResult {
 		if blocked, reason := IsRigParkedOrDocked(townRoot, rigName); blocked {
 			return agentStartResult{name: name, ok: true, detail: fmt.Sprintf("skipped (rig %s)", reason)}
 		}
+	}
+
+	if upOnDemandIdle(rigName, r, rig.RefineryHasWork) {
+		return agentStartResult{name: name, ok: true, detail: onDemandIdleDetail}
 	}
 
 	mgr := refinery.NewManager(r)
