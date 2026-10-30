@@ -35,7 +35,8 @@ type Config struct {
 
 	// OnDemandIdleGrace is how long an on-demand rig (a rig in a project) may
 	// have no work before its witness/refinery is stopped. Zero means the
-	// default (DefaultOnDemandIdleGrace).
+	// default (DefaultOnDemandIdleGrace). Set from on_demand_idle_grace in
+	// mayor/daemon.json.
 	OnDemandIdleGrace time.Duration `json:"on_demand_idle_grace,omitempty"`
 }
 
@@ -212,6 +213,10 @@ type DaemonPatrolConfig struct {
 	// Propagated to all sessions spawned by the daemon and read by gt up/mayor attach.
 	// Example: {"GT_DOLT_PORT": "43211"}
 	Env       map[string]string `json:"env,omitempty"`
+	// OnDemandIdleGrace overrides how long an on-demand rig's witness or
+	// refinery may sit idle before the daemon stops it (Go duration, e.g.
+	// "10m"). Empty or invalid means DefaultOnDemandIdleGrace.
+	OnDemandIdleGrace string `json:"on_demand_idle_grace,omitempty"`
 }
 
 // PatrolConfigFile returns the path to the patrol config file.

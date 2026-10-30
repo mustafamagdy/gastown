@@ -290,6 +290,14 @@ func New(config *Config) (*Daemon, error) {
 			os.Setenv(k, v)
 			logger.Printf("Set env %s=%s from daemon.json", k, v)
 		}
+		if v := patrolConfig.OnDemandIdleGrace; v != "" {
+			if g, err := time.ParseDuration(v); err == nil && g > 0 {
+				config.OnDemandIdleGrace = g
+				logger.Printf("On-demand idle grace %s from daemon.json", g)
+			} else {
+				logger.Printf("Warning: ignoring invalid on_demand_idle_grace %q in daemon.json", v)
+			}
+		}
 	}
 	agentconfig.ApplyConfiguredDoltEnv(config.TownRoot)
 

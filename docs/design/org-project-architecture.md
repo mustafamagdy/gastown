@@ -127,7 +127,7 @@ Registration is cheap: a bare clone shared through local git objects.
   are checked only before a refinery is stopped.
 - **Daemon:** on each heartbeat an on-demand rig's witness/refinery is started
   only if it has work. An agent that has had no work for the idle grace
-  period (default 10 minutes, `on_demand_idle_grace` in the daemon config) is
+  period (default 10 minutes, `"on_demand_idle_grace": "10m"` in `mayor/daemon.json`) is
   stopped with the same kill path used for parked rigs, but the rig is not
   parked or docked. The last-work time lives in daemon memory; after a daemon
   restart the clock starts at the first observation, so nothing is killed

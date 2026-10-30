@@ -114,3 +114,17 @@ func TestOnDemandGraceConfig(t *testing.T) {
 		t.Fatal("configured grace")
 	}
 }
+
+func TestLoadPatrolConfig_OnDemandIdleGrace(t *testing.T) {
+	townRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(townRoot, "mayor"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(PatrolConfigFile(townRoot), []byte(`{"type":"daemon-patrol-config","version":1,"on_demand_idle_grace":"90s"}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := LoadPatrolConfig(townRoot)
+	if cfg == nil || cfg.OnDemandIdleGrace != "90s" {
+		t.Fatalf("LoadPatrolConfig = %+v, want on_demand_idle_grace 90s", cfg)
+	}
+}
