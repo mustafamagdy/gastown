@@ -421,3 +421,20 @@ func TestCreateBranchBadDefault(t *testing.T) {
 		t.Fatal("missing default branch must error")
 	}
 }
+
+// A closed task with an open MR has not reached the feature branch yet, so it
+// must not release the tasks waiting for it.
+func TestClassify_MergingDoesNotRelease(t *testing.T) {
+	rec := &Record{Tasks: []Task{{ID: "a"}, {ID: "b", After: []string{"a"}}}}
+	views := Classify(rec, map[string]string{"a": StatusMerging, "b": "open"})
+	if views[0].State != TaskMerging || views[1].State != TaskBlocked {
+		t.Fatalf("views = %+v", views)
+	}
+	if !Started(views) {
+		t.Error("a merging task counts as started")
+	}
+	views = Classify(rec, map[string]string{"a": "closed", "b": "open"})
+	if views[0].State != TaskDone || views[1].State != TaskReady {
+		t.Fatalf("views = %+v", views)
+	}
+}

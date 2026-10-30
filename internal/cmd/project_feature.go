@@ -330,12 +330,36 @@ func closeFeatureBead(dir, id, reason string) {
 // featureTaskStatuses reads the live bead status of every task.
 func featureTaskStatuses(townRoot string, rec *projectfeature.Record) map[string]string {
 	status := make(map[string]string, len(rec.Tasks))
+	rigs := map[string]bool{}
 	for _, t := range rec.Tasks {
 		info, err := getBeadInfoFromTownRoot(townRoot, t.ID)
 		if err != nil {
 			continue // unknown
 		}
 		status[t.ID] = info.Status
+		rigs[t.Rig] = true
+	}
+	// A closed bead is not merged work: gt done closes it before the refinery
+	// merges. If the queue cannot be read, assume every closed task of the rig
+	// is still merging, so dependents wait rather than start without its code.
+	merging := map[string]bool{}
+	unreadable := map[string]bool{}
+	for rig := range rigs {
+		mrs, err := findOpenMRsForIntegration(beads.New(filepath.Join(townRoot, rig)), rec.Branch)
+		if err != nil {
+			unreadable[rig] = true
+			continue
+		}
+		for _, mr := range mrs {
+			if f := beads.ParseMRFields(mr); f != nil {
+				merging[f.SourceIssue] = true
+			}
+		}
+	}
+	for _, t := range rec.Tasks {
+		if status[t.ID] == "closed" && (merging[t.ID] || unreadable[t.Rig]) {
+			status[t.ID] = projectfeature.StatusMerging
+		}
 	}
 	return status
 }
@@ -712,9 +736,10 @@ func runProjectFeatureStatus(cmd *cobra.Command, args []string) error {
 		}
 		fmt.Println(line)
 	}
-	fmt.Printf("\n%d ready, %d running, %d blocked, %d done\n",
+	fmt.Printf("\n%d ready, %d running, %d merging, %d blocked, %d done\n",
 		out.Counts[projectfeature.TaskReady], out.Counts[projectfeature.TaskRunning],
-		out.Counts[projectfeature.TaskBlocked], out.Counts[projectfeature.TaskDone])
+		out.Counts[projectfeature.TaskMerging], out.Counts[projectfeature.TaskBlocked],
+		out.Counts[projectfeature.TaskDone])
 	return nil
 }
 
