@@ -44,14 +44,9 @@ add `$PNPM_HOME/bin` to `PATH`.
 
 `gt-autoupdate.sh` runs every 5 minutes. It fetches `origin/main` and compares
 it with the commit the installed `gt` binary was built from (`gt version`). If
-they differ, it fast-forwards `~/src/gastown` and runs `make install`.
-
-It skips the update, without failing, when:
-
-- `~/src/gastown` is not on `main`;
-- `~/src/gastown` has uncommitted changes to tracked files (do work in a
-  worktree, not in the main checkout);
-- local `main` has diverged from `origin/main`.
+they differ, it builds that commit in a private worktree at
+`~/.cache/gt-autoupdate/build` and runs `make install` there. The state of
+`~/src/gastown` does not matter, so local work there never stops updates.
 
 Logs: `journalctl --user -u gt-autoupdate.service`.
 
@@ -64,8 +59,44 @@ town under herdr inside your own herdr session. See
 
 ## Keeping up with upstream
 
+The fork takes upstream fixes and features through a reviewed pull request, so
+nothing upstream can reach a machine until it is merged into the fork's `main`.
+
+`gt-upstream-check.sh` runs daily (`gt-upstream-check.timer`):
+
+1. It fetches `upstream/main`. No new commits means it stops.
+2. It merges upstream into a new branch in a private worktree. Merge, not
+   rebase: the fork's `main` is published and machines build from it. `rerere`
+   is on, so a conflict resolved once stays resolved.
+3. If the merge is clean, it builds, vets and tests the packages the fork
+   changes most, then pushes `upstream-sync/<sha>` and opens a pull request
+   against the fork with the commit list and test result.
+4. If the merge conflicts, it opens an issue on the fork listing the upstream
+   commits and the conflicting files.
+
+Each upstream commit is handled once (state in
+`~/.cache/gt-upstream-check/last-seen`). It never merges to `main`. To run it
+by hand: `contrib/fork-host/gt-upstream-check.sh`, or with `--dry-run` to see
+the result with no push, pull request or issue.
+
+Resolving a conflict by hand:
+
 ```bash
 cd ~/src/gastown
 git fetch upstream
-git merge upstream/main   # resolve, test, then push to origin main
+git switch -c upstream-sync/manual origin/main
+git merge upstream/main    # resolve, then run the tests
+git push -u origin HEAD    # open a PR against mustafamagdy/gastown, never upstream
 ```
+
+Pass `--repo mustafamagdy/gastown` to `gh pr create` here: the clone has both
+remotes, and `gh` may otherwise pick the upstream repository.
+
+To keep conflicts rare:
+
+- Put fork features in new files and packages, and make a small call from
+  upstream code into them. Most of the fork works this way already.
+- Files both sides change often are the risk: `internal/cmd/up.go`,
+  `internal/tmux/tmux.go`, `internal/cmd/daemon.go`, `internal/cmd/prime.go`.
+- Send fixes that are not specific to the fork upstream as pull requests. Each
+  one accepted is one less line to carry.

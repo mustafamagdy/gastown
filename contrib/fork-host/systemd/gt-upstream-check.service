@@ -1,0 +1,6 @@
+[Unit]
+Description=Offer new upstream gastown commits to the fork as a pull request
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/libexec/gt-upstream-check.sh

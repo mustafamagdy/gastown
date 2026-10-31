@@ -13,11 +13,14 @@ fi
 install -Dm755 "$HERE/gt-autoupdate.sh" "$HOME/.local/libexec/gt-autoupdate.sh"
 install -Dm644 "$HERE/systemd/gt-autoupdate.service" "$HOME/.config/systemd/user/gt-autoupdate.service"
 install -Dm644 "$HERE/systemd/gt-autoupdate.timer" "$HOME/.config/systemd/user/gt-autoupdate.timer"
+install -Dm755 "$HERE/gt-upstream-check.sh" "$HOME/.local/libexec/gt-upstream-check.sh"
+install -Dm644 "$HERE/systemd/gt-upstream-check.service" "$HOME/.config/systemd/user/gt-upstream-check.service"
+install -Dm644 "$HERE/systemd/gt-upstream-check.timer" "$HOME/.config/systemd/user/gt-upstream-check.timer"
 
 (cd "$REPO" && make install)
 
 systemctl --user daemon-reload
-systemctl --user enable --now gt-autoupdate.timer
+systemctl --user enable --now gt-autoupdate.timer gt-upstream-check.timer
 # Keep user services running without a login session.
 loginctl enable-linger "$USER" 2>/dev/null || echo "run: sudo loginctl enable-linger $USER"
 gt version

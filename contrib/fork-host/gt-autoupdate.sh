@@ -4,6 +4,7 @@ set -euo pipefail
 export PATH="$HOME/.local/bin:$HOME/.local/go/bin:$PATH"
 REPO="$HOME/src/gastown"
 BRANCH=main
+BUILD="$HOME/.cache/gt-autoupdate/build"
 mkdir -p "$HOME/.cache"
 exec 9>"$HOME/.cache/gt-autoupdate.lock"
 flock -n 9 || { echo "another update is running"; exit 0; }
@@ -16,13 +17,16 @@ INSTALLED=$(gt version 2>/dev/null | grep -o '@[0-9a-f]*' | tail -1 | cut -d@ -f
 if [ -n "$INSTALLED" ] && [ "$(git rev-parse --short=8 "$REMOTE")" = "$(git rev-parse --short=8 "$INSTALLED" 2>/dev/null)" ]; then
   exit 0
 fi
-if [ "$(git branch --show-current)" != "$BRANCH" ] || [ -n "$(git status --porcelain --untracked-files=no)" ]; then
-  echo "skipping: $REPO is not on a clean $BRANCH checkout"; exit 0
+# Build in a private worktree, so a dirty or diverged ~/src/gastown never stops
+# updates. A detached HEAD also skips the Makefile's up-to-date check.
+if [ ! -e "$BUILD/.git" ]; then
+  git worktree prune
+  git worktree add --quiet --detach "$BUILD" "$REMOTE"
 fi
-if ! git merge --ff-only --quiet "origin/$BRANCH"; then
-  echo "skipping: local $BRANCH has diverged from origin/$BRANCH"; exit 0
-fi
+git -C "$BUILD" checkout --quiet --detach --force "$REMOTE"
+git -C "$BUILD" clean -fdq
 echo "updating gt: ${INSTALLED:-unknown} -> ${REMOTE:0:8}"
-make install
+# The host has little memory and no swap: keep the build small.
+GOMAXPROCS=2 GOFLAGS=-p=2 make -C "$BUILD" install
 systemctl --user try-restart gt-dashboard.service || true
 gt version
