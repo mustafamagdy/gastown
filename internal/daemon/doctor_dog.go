@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/steveyegge/gastown/internal/constants"
+	"github.com/steveyegge/gastown/internal/reaper"
 )
 
 // Operational constants — timeouts needed to perform checks.
@@ -86,7 +87,7 @@ func doctorDogDatabases(config *DaemonPatrolConfig) []string {
 			return config.Patrols.DoctorDog.Databases
 		}
 	}
-	return []string{"hq", "gt", "mo"}
+	return reaper.DefaultDatabases
 }
 
 // runDoctorDog pours a mol-dog-doctor molecule for agent execution.
