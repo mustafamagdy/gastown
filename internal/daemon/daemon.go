@@ -70,6 +70,10 @@ type Daemon struct {
 	// mayor/daemon.json. Checked by isPatrolActive alongside patrolConfig.
 	disabledPatrols map[string]bool
 
+	// wispWarned records rigs already warned about a missing wisp config, so
+	// the warning is logged once per rig and not on every patrol.
+	wispWarned sync.Map
+
 	// Mass death detection: track recent session deaths
 	deathsMu     sync.Mutex
 	recentDeaths []sessionDeath
@@ -2288,7 +2292,9 @@ func (d *Daemon) isRigOperational(rigName string) (bool, string) {
 
 	// Warn if wisp config is missing - parked/docked state may have been lost
 	if _, err := os.Stat(cfg.ConfigPath()); os.IsNotExist(err) {
-		d.logger.Printf("Warning: no wisp config for %s - parked state may have been lost", rigName)
+		if _, seen := d.wispWarned.LoadOrStore(rigName, true); !seen {
+			d.logger.Printf("Warning: no wisp config for %s - parked state may have been lost", rigName)
+		}
 	}
 
 	// Check wisp layer first (local/ephemeral overrides)
