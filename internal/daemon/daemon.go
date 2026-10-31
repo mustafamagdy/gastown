@@ -37,6 +37,7 @@ import (
 	"github.com/steveyegge/gastown/internal/mayor"
 	"github.com/steveyegge/gastown/internal/polecat"
 	"github.com/steveyegge/gastown/internal/refinery"
+	"github.com/steveyegge/gastown/internal/review"
 	"github.com/steveyegge/gastown/internal/rig"
 	"github.com/steveyegge/gastown/internal/session"
 	"github.com/steveyegge/gastown/internal/telemetry"
@@ -107,6 +108,10 @@ type Daemon struct {
 	featureLandLastRun map[string]time.Time
 	featureLanding     atomic.Bool
 	featureLandFn      func(id string) ([]byte, error)
+
+	// reviewEngine keeps one lavish poll per open visual review. Created on
+	// the first heartbeat that finds an open review.
+	reviewEngine *review.Engine
 
 	// Restart tracking with exponential backoff to prevent crash loops
 	restartTracker *RestartTracker
@@ -1059,6 +1064,9 @@ func (d *Daemon) heartbeat(state *State) {
 	// Advance landings a human started. No pressure gate: landing spawns no
 	// polecats, it only talks to git and the PR provider.
 	d.advanceLandings()
+
+	// 18. Keep the polls of open visual reviews running (no-op without any).
+	d.watchReviews()
 
 	// Update state
 	state.LastHeartbeat = time.Now()
@@ -2352,6 +2360,8 @@ func (d *Daemon) processLifecycleRequests() {
 // shutdown performs graceful shutdown.
 func (d *Daemon) shutdown(state *State) error { //nolint:unparam // error return kept for future use
 	d.logger.Println("Daemon shutting down")
+
+	d.stopReviews()
 
 	// Stop feed curator
 	if d.curator != nil {

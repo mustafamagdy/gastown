@@ -57,6 +57,10 @@ type LandEnv struct {
 	CloseEpic func(reason string) error
 	// OnLanded runs after the feature is landed (service map refresh).
 	OnLanded func() error
+	// VisualGate reports whether the visual review lets the feature land
+	// (used when Settings.RequireVisualReview is set; nil means not
+	// approved) and, if not, a message saying why.
+	VisualGate func() (ok bool, message string)
 
 	Out    io.Writer
 	DryRun bool
@@ -246,6 +250,18 @@ func Land(ctx context.Context, env *LandEnv) (*LandReport, error) {
 	strategy := env.Settings.MergeStrategy
 	if strategy != "pr" && strategy != "direct" {
 		return nil, fmt.Errorf("unknown merge_strategy %q (want pr or direct)", strategy)
+	}
+	// Visual review gate, for direct and PR landing alike. Checked on every
+	// pass, so a review rejected after the PRs opened also stops the merges.
+	if env.Settings.RequireVisualReview {
+		ok, msg := false, "visual review cannot be checked"
+		if env.VisualGate != nil {
+			ok, msg = env.VisualGate()
+		}
+		if !ok {
+			env.printf("Feature %s is not ready to land: %s.\n", rec.ID, msg)
+			return &LandReport{Outcome: OutcomeWaiting, Order: rec.LandingOrder}, nil
+		}
 	}
 	if !env.DryRun {
 		if err := os.MkdirAll(Dir(env.TownRoot, rec.Project), 0755); err != nil {
