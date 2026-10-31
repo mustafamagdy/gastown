@@ -66,8 +66,8 @@ source of truth.
 | delete_merged_branches | true | Whether to delete source branches after merge |
 | judgment_enabled | false | Enable quality review for merges (true/false) |
 | review_depth | standard | Review depth: quick, standard, or deep |
-| merge_strategy | direct | Merge strategy: 'direct' (merge+push) or 'pr' (GitHub PR) |
-| require_review | false | Require at least one approving GitHub review before merging (pr mode only) |
+| merge_strategy | direct | Merge strategy: 'direct' (merge+push) or 'pr' (pull request on GitHub or Azure DevOps) |
+| require_review | false | Require at least one approving review before merging (pr mode only) |
 
 ## Target Resolution Rule
 
@@ -168,11 +168,11 @@ description = "Review depth: quick, standard, or deep"
 default = "standard"
 
 [vars.merge_strategy]
-description = "Merge strategy: 'direct' (ff-only merge + push) or 'pr' (create GitHub PR). Default: direct."
+description = "Merge strategy: 'direct' (ff-only merge + push) or 'pr' (create a pull request on GitHub or Azure DevOps). Default: direct."
 default = "direct"
 
 [vars.require_review]
-description = "Require at least one approving GitHub review before merging (only applies when merge_strategy=pr)."
+description = "Require at least one approving review before merging (only applies when merge_strategy=pr)."
 default = "false"
 
 [vars.rig]
@@ -666,7 +666,7 @@ fi
 ```
 
 If an open PR exists, pass `--skip-branch-delete` to `gt mq post-merge` in Step 3.
-The PR should be merged or closed through the GitHub API, not by branch deletion.
+The PR should be merged or closed through the platform, not by branch deletion.
 
 Continue to Step 2.
 
@@ -679,16 +679,18 @@ Continue to Step 2.
 
 **If merge_strategy = "pr":**
 
-Create a GitHub PR for the submitted branch instead of direct merge. Do not
+Open a pull request for the submitted branch instead of direct merge. Do not
 force-push or rebase the polecat branch; post-merge proof depends on the
 submitted head remaining stable.
 
+Use only the `gt mq pr` verbs below. They work the same on GitHub and Azure
+DevOps (the provider comes from the rig's origin remote). Do NOT call `gh` or
+`az` yourself.
+
 ```bash
-# Create the PR using bead metadata for title/description
-PR_URL=$(gh pr create \
-  --base <merge-target> \
-  --head <polecat-branch> \
-  --title "<issue-title> (<issue-id>)" \
+# Open the PR (or get the open one: the command is safe to repeat)
+PR_JSON=$(gt mq pr create <rig> <mr-bead-id> \\
+  --title "<issue-title> (<issue-id>)" \\
   --body "## Summary
 
 Automated merge from polecat branch.
@@ -699,72 +701,74 @@ Automated merge from polecat branch.
 - **Tests**: Passed (verified by refinery)
 
 ---
-*Created by Gas Town Refinery*")
+*Created by Gas Town Refinery*" --json)
+PR_ID=$(echo "$PR_JSON" | jq -r '.id')
+PR_URL=$(echo "$PR_JSON" | jq -r '.url')
+PR_HEAD=$(echo "$PR_JSON" | jq -r '.head_sha')
 echo "PR created: $PR_URL"
 ```
 
-If the PR already exists for this branch, `gh pr create` will fail. In that case,
-find the existing PR:
-```bash
-PR_JSON=$(gt mq pr-status <rig> <mr-bead-id> --json)
-PR_URL=$(echo "$PR_JSON" | jq -r '.pr.url // empty')
-```
+If the PR already exists for this branch, the same command returns it, so no
+separate lookup is needed.
 
 **Step 1.5 (pr only): VERIFY PR CREATED**
 
 ```bash
-gh pr view "$PR_URL" --json url,state -q '.url + " " + .state'
+echo "$PR_JSON" | jq -r '.id + " " + .state'
 ```
 
-If the PR was not created or is in an unexpected state, debug and retry.
+The state must be `open`. If the PR was not created or is in an unexpected
+state, debug and retry.
 
 **Step 1.6 (pr only): WAIT FOR CI CHECKS TO PASS**
 
 ⚠️ **DO NOT PROCEED until CI passes. DO NOT send MERGED until the PR is actually merged.**
 
 ```bash
-# Get the repo URL for gh commands
-REPO_URL=$(git remote get-url origin | sed 's/.*github.com[:/]\\(.*\\)\\.git/\\1/')
-
-# Wait for CI checks (timeout 15 minutes)
-gh pr checks "$PR_URL" --repo "$REPO_URL" --watch --fail-fast
+# Wait for CI checks (timeout 15 minutes). State is pending, passing, failing or none.
+CHECKS_JSON=$(gt mq pr checks <rig> "$PR_ID" --wait --timeout 15m --json)
+CHECKS_STATE=$(echo "$CHECKS_JSON" | jq -r '.state')
 ```
 
-**If CI checks FAIL:**
+If the command exits with an error (for example the checks are still pending
+after the timeout), leave the PR open, archive nothing, and retry on the next
+patrol cycle.
+
+**If CHECKS_STATE = failing:**
 Do NOT merge. Send FIX_NEEDED back to the polecat:
 ```bash
-FAILURE_OUTPUT=$(gh pr checks "$PR_URL" --repo "$REPO_URL" 2>&1)
+FAILURE_OUTPUT=$(echo "$CHECKS_JSON" | jq -r '.failing | join(", ")')
 gt mail send <rig>/polecats/<polecat-name> -s "FIX_NEEDED <polecat-name>" --stdin <<'BODY'
 Branch: <branch>
 Issue: <issue-id>
 PR: ${PR_URL}
 Failure-Type: ci-checks
-Error: $FAILURE_OUTPUT
+Error: Failing checks: $FAILURE_OUTPUT
 Attempt-Number: 1
 BODY
 ```
 Then skip to Step 4 (archive mail) and continue patrol.
 
-**If CI checks PASS:**
+**If CHECKS_STATE = passing or none:**
 
 **Step 1.7 (pr only): CHECK REVIEW APPROVAL STATUS (gas-fk4)**
 
 ⚠️ **DO NOT merge a PR that has not been explicitly approved.**
-Plain review comments (COMMENTED) are NOT approval. Only an explicit
-"APPROVED" reviewDecision allows the merge to proceed.
+Plain review comments are NOT approval. Only an explicit `approved` state
+allows the merge to proceed.
 
 ```bash
-REVIEW_DECISION=$(gh pr view "$PR_URL" --repo "$REPO_URL" --json reviewDecision -q '.reviewDecision')
-echo "Review decision: $REVIEW_DECISION"
+REVIEW_STATE=$(gt mq pr review <rig> "$PR_ID" --json | jq -r '.state')
+echo "Review state: $REVIEW_STATE"
 ```
 
-| reviewDecision | Action |
+| REVIEW_STATE | Action |
 |----------------|--------|
-| `APPROVED` | Proceed to merge |
-| `CHANGES_REQUESTED` | Send FIX_NEEDED to polecat (reviewer rejected), skip merge |
-| `REVIEW_REQUIRED` or empty | PR has not been reviewed yet — skip merge, leave PR open |
+| `approved` | Proceed to merge |
+| `rejected` | Send FIX_NEEDED to polecat (reviewer rejected), skip merge |
+| `pending` | PR has not been reviewed yet — skip merge, leave PR open |
 
-**If CHANGES_REQUESTED:**
+**If rejected:**
 ```bash
 gt mail send <rig>/polecats/<polecat-name> -s "FIX_NEEDED <polecat-name>" --stdin <<'BODY'
 Branch: <branch>
@@ -777,21 +781,22 @@ BODY
 ```
 Clean up temp branch, archive MERGE_READY, skip to loop-check.
 
-**If REVIEW_REQUIRED or empty (not yet reviewed):**
+**If pending (not yet reviewed):**
 Do NOT merge. Do NOT close. Do NOT send FIX_NEEDED. Leave the PR open
 for human review. Archive the MERGE_READY mail — the PR will be picked
 up on a future patrol cycle if/when it gets approved.
 Clean up temp branch and skip to loop-check.
 
-**If APPROVED:**
-Merge the PR:
+**If approved:**
+Merge the PR. `--expect-head` refuses the merge if the branch moved after the
+checks ran:
 ```bash
-gh pr merge "$PR_URL" --repo "$REPO_URL" --merge
+gt mq pr merge <rig> "$PR_ID" --method merge --expect-head "$PR_HEAD"
 ```
 
-If merge fails (conflict, branch protection), debug and retry.
+If merge fails (conflict, branch protection, head moved), debug and retry.
 
-⚠️ **STOP HERE - DO NOT PROCEED UNTIL THE PR IS ACTUALLY MERGED ON GITHUB**
+⚠️ **STOP HERE - DO NOT PROCEED UNTIL THE PR IS ACTUALLY MERGED**
 
 **Step 2: Post-merge cleanup (REQUIRED — single command)**
 
@@ -813,9 +818,9 @@ bd list --type=merge-request --status=open | grep <polecat-name>
 
 Verify the command output shows all steps succeeded (✓ for each).
 
-**Note**: In PR mode, run post-merge cleanup only after `gh pr merge` succeeds.
+**Note**: In PR mode, run post-merge cleanup only after `gt mq pr merge` succeeds.
 The branch is deleted by `gt mq post-merge` after merge proof passes, not by
-`gh pr merge`. The `--skip-branch-delete` flag (gas-fk4) prevents branch deletion
+`gt mq pr merge`. The `--skip-branch-delete` flag (gas-fk4) prevents branch deletion
 when an open PR is detected in direct merge mode.
 
 **Step 3: Send MERGED Notification (REQUIRED - ONLY AFTER CLEANUP SUCCEEDS)**
@@ -837,7 +842,7 @@ PR: ${PR_URL}
 Merged-At: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 ```
 
-Note: In PR mode, MERGED is only sent AFTER `gh pr merge` succeeds and
+Note: In PR mode, MERGED is only sent AFTER `gt mq pr merge` succeeds and
 `gt mq post-merge` verifies the target contains the submitted head.
 
 This signals the Witness to nuke the polecat worktree. WITHOUT THIS NOTIFICATION,
