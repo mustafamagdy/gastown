@@ -229,10 +229,11 @@ func defaultShellCommand() string {
 
 // gtExecutable returns the gt binary: $GT_BIN, else os.Executable().
 func gtExecutable() string {
-	if b := os.Getenv("GT_BIN"); b != "" {
+	if b := os.Getenv("GT_BIN"); b != "" && !strings.HasSuffix(b, ".test") {
 		return b
 	}
-	if p, err := os.Executable(); err == nil {
+	// Under go test the running binary is the test binary. Never use it.
+	if p, err := os.Executable(); err == nil && !strings.HasSuffix(p, ".test") {
 		return p
 	}
 	return "gt"

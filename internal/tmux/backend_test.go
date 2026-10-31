@@ -2,6 +2,7 @@ package tmux
 
 import (
 	"context"
+	"os"
 	"reflect"
 	"testing"
 )
@@ -103,5 +104,26 @@ func TestSocketGuardNoopInHerdr(t *testing.T) {
 	setBackendForTest(t, BackendHerdr)
 	if err := NewTmuxWithSocket("gt-nonexistent-guard").ensureNewSessionSocketSafe(); err != nil {
 		t.Errorf("guard should be a no-op: %v", err)
+	}
+}
+
+func TestGtExecutableRejectsTestBinary(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv(EnvGTBin, dir+"/foo.test")
+	t.Setenv("PATH", dir)
+	if p, err := gtExecutable(); err == nil {
+		t.Fatalf("expected error, got %q", p)
+	}
+	self, _ := os.Executable()
+	t.Setenv(EnvGTBin, "")
+	if p, err := gtExecutable(); err == nil && p == self {
+		t.Fatalf("returned the test binary %q", p)
+	}
+}
+
+func TestGtExecutableUsesGTBin(t *testing.T) {
+	t.Setenv(EnvGTBin, "/opt/gt/gt")
+	if p, err := gtExecutable(); err != nil || p != "/opt/gt/gt" {
+		t.Fatalf("got %q, %v", p, err)
 	}
 }

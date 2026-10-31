@@ -59,11 +59,21 @@ func GetBackend() Backend {
 func IsHerdr() bool { return GetBackend() == BackendHerdr }
 
 // gtExecutable returns the gt binary used to run the herdr emulator.
+// It never returns the running binary, which under go test is the test
+// binary and would run itself again without end.
 func gtExecutable() (string, error) {
-	if p := os.Getenv(EnvGTBin); p != "" {
+	if p := os.Getenv(EnvGTBin); p != "" && !isTestBinary(p) {
 		return p, nil
 	}
-	return os.Executable()
+	if p, err := exec.LookPath("gt"); err == nil && !isTestBinary(p) {
+		return p, nil
+	}
+	return "", fmt.Errorf("gt binary not found: set %s or put gt on PATH", EnvGTBin)
+}
+
+// isTestBinary reports whether path is a go test binary.
+func isTestBinary(path string) bool {
+	return strings.HasSuffix(path, ".test")
 }
 
 // ExecArgv returns the binary path and full argv (argv[0] included) to run
