@@ -40,7 +40,9 @@ func TestMain(m *testing.M) {
 	code := m.Run()
 
 	if tmuxSocket != "" {
-		_ = exec.Command("tmux", "-L", tmuxSocket, "kill-server").Run()
+		// KillServer follows the active backend, so a herdr server started
+		// on this socket is stopped too.
+		_ = tmux.NewTmux().KillServer()
 		socketPath := filepath.Join(tmux.SocketDir(), tmuxSocket)
 		_ = os.Remove(socketPath)
 	}

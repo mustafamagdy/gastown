@@ -129,6 +129,9 @@ func TestDetectStaleWorkingDogs_KillsSessionBeforeClearing(t *testing.T) {
 	socketName := fmt.Sprintf("gt-test-dog-stale-%d", time.Now().UnixNano())
 	tmux.SetDefaultSocket(socketName)
 	t.Cleanup(func() { tmux.SetDefaultSocket(oldSocket) })
+	// Stop the whole server on this private socket. Killing the session is
+	// not enough under herdr, where the server process would stay alive.
+	t.Cleanup(func() { _ = tmux.NewTmux().KillServer() })
 
 	townRoot := t.TempDir()
 	d := testHandlerDaemon(t, townRoot)
@@ -535,6 +538,9 @@ func TestCleanupStuckDogs_ClearsAgentDeadWorker(t *testing.T) {
 	socketName := fmt.Sprintf("gt-test-dog-cleanup-%d", time.Now().UnixNano())
 	tmux.SetDefaultSocket(socketName)
 	t.Cleanup(func() { tmux.SetDefaultSocket(oldSocket) })
+	// Stop the whole server on this private socket. Killing the session is
+	// not enough under herdr, where the server process would stay alive.
+	t.Cleanup(func() { _ = tmux.NewTmux().KillServer() })
 
 	townRoot := t.TempDir()
 	d := testHandlerDaemon(t, townRoot)
