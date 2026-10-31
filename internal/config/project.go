@@ -41,22 +41,30 @@ type ProjectConfig struct {
 	MergeStrategy string `json:"merge_strategy,omitempty"` // "pr" (default) or "direct"
 	VCSProvider   string `json:"vcs_provider,omitempty"`   // "github", "azure"; empty = detect from the remote
 	RequireReview *bool  `json:"require_review,omitempty"` // nil means true
+
+	// RequireVisualReview makes a feature land only after a human approved an
+	// "approval" review (gt review) on the feature or one of its tasks.
+	// Default false.
+	RequireVisualReview bool `json:"require_visual_review,omitempty"`
 }
 
 // LandSettings are the resolved landing settings of a project.
 type LandSettings struct {
-	MergeStrategy string // "pr" or "direct"
-	VCSProvider   string // "" means detect from each repo's remote
-	RequireReview bool
+	MergeStrategy       string // "pr" or "direct"
+	VCSProvider         string // "" means detect from each repo's remote
+	RequireReview       bool
+	RequireVisualReview bool
 }
 
 // ProjectLandSettings resolves a project's landing settings with defaults:
-// merge_strategy "pr", vcs_provider auto-detected, require_review true.
+// merge_strategy "pr", vcs_provider auto-detected, require_review true,
+// require_visual_review false.
 func ProjectLandSettings(p *ProjectConfig) LandSettings {
 	s := LandSettings{MergeStrategy: "pr", RequireReview: true}
 	if p == nil {
 		return s
 	}
+	s.RequireVisualReview = p.RequireVisualReview
 	if p.MergeStrategy != "" {
 		s.MergeStrategy = p.MergeStrategy
 	}

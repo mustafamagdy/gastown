@@ -22,6 +22,7 @@ import (
 	"github.com/steveyegge/gastown/internal/events"
 	"github.com/steveyegge/gastown/internal/git"
 	"github.com/steveyegge/gastown/internal/mail"
+	"github.com/steveyegge/gastown/internal/review"
 	"github.com/steveyegge/gastown/internal/rig"
 	"github.com/steveyegge/gastown/internal/util"
 )
@@ -2116,6 +2117,13 @@ func (e *Engineer) ListReadyMRs() ([]*MRInfo, error) {
 
 		// Filter by rig — wisps are shared across all rigs (GH#2718).
 		if fields.Rig != "" && !strings.EqualFold(fields.Rig, e.rig.Name) {
+			continue
+		}
+
+		// Visual review gate: leave the MR queued while its source bead has an
+		// open or rejected approval review (or the review store is unreadable).
+		if blocked, why := review.MergeBlock(filepath.Dir(e.rig.Path), fields.SourceIssue); blocked {
+			_, _ = fmt.Fprintf(e.output, "[Engineer] Not merging %s yet: %s (visual review)\n", issue.ID, why)
 			continue
 		}
 

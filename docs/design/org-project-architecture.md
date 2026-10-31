@@ -39,7 +39,7 @@ their upstream meanings; see `docs/glossary.md`.
 
 ```
 TOWN (org)                      ~/work/<org>/gt, own Dolt port, own herdr session
-├─ HQ                           mayor, deacon, boot, dogs (incl. reviewer dog)
+├─ HQ                           mayor, deacon, boot, dogs
 └─ PROJECT                      projects/<name>/project.json
    ├─ project beads             own prefix; features (epics) spanning rigs
    ├─ project brain             brief, service map, agent-brain memory folder
@@ -128,8 +128,9 @@ member rig get `GT_PROJECT`.
 }
 ```
 
-Planned for later phases: project-level `merge_strategy`, `vcs_provider` and
-`require_visual_review` defaults.
+Landing settings (`merge_strategy`, `vcs_provider`, `require_review`) and
+`require_visual_review` (default false) are described under "Multi-repo
+features" and "Review gate".
 
 Rig names cannot contain hyphens, dots or spaces (session names are parsed on
 `-`), so a repo `orders-svc` becomes the rig `orders_svc`.
@@ -408,21 +409,98 @@ rig's origin remote (`projectfeature.NewProvider`, replaced by a fake in tests).
 
 ## Review gate (lavish)
 
-`lavish-axi` opens an agent's HTML page in the browser, the human annotates it,
-and `lavish-axi poll` returns the feedback.
+`lavish-axi` opens an agent's HTML page in the browser, the human annotates it
+and presses a button, and `lavish-axi poll` returns what they sent. gt watches
+this deterministically; no model is involved.
 
-- `gt review request <html> --bead <id> --kind plan|design|question|approval`
-  opens a lavish session in the background, stores the session id on the bead
-  and sets the bead to awaiting review. The agent does not block.
-- The human gets one HTTPS link (Tailscale Serve in front of lavish; raw HTTP
-  links fail in browsers for `ts.net` names).
-- The **reviewer dog** polls all open sessions of the town. Feedback is
-  recorded on the bead, then nudged to the owning agent if alive, or re-slung
-  to a fresh polecat with the page and notes.
-- Approve / Reject / Answer are lavish question controls, so results are
-  structured.
-- With `require_visual_review`, the refinery does not complete a PR until the
-  review is approved.
+### Asking for a review
+
+`gt review request <page.html> --bead <id> --kind plan|design|question|approval`
+
+- Copies the page and the files next to it (up to 50 MB; more is refused) to
+  `<town>/.runtime/reviews/<id>/`, so it survives polecat cleanup.
+- Adds a small gt panel before `</body>` in the copy: Approve, Request changes
+  and an answer box (only the answer box for `question`). The buttons call
+  `window.lavish.queuePrompt(..., {tag: 'gt-review', data: {decision, answer}})`
+  and then `window.lavish.sendQueuedPrompts()`.
+- Opens a lavish session with `--no-open`, prints one link and returns at once.
+  The agent never waits.
+- `gt review list`, `show <id>`, `cancel <id>` (ends the lavish session) and
+  `reopen <id>` (resumes a disconnected or ended review). `gt review watch`
+  runs the watcher in a terminal for a town without a daemon.
+
+### Records are the truth
+
+`<town>/.runtime/reviews/<id>.json` holds the id, bead, kind, the page copy,
+the link, the requester address, the state, the feedback list and times. States
+are `open`, `approved`, `rejected`, `answered`, `ended` and `disconnected`.
+Writes are atomic. The bead gets a mirror: the label `review:pending`,
+`review:approved` or `review:rejected`, and a comment with the feedback. The
+bead is found by its prefix through the town routes, so it can live in a rig,
+project or town database. If the mirror fails, the record is still right.
+
+### Towns stay separate
+
+Every lavish call from gt sets `LAVISH_AXI_STATE_DIR=<town>/.runtime/lavish`,
+`LAVISH_AXI_PORT`, `LAVISH_AXI_TELEMETRY=0` (turns telemetry off) and
+`LAVISH_AXI_NO_OPEN=1`. The port is the Dolt port plus 1080 (3307 gives 4387,
+3308 gives 4388), or the town setting `review_port`. gt also sets
+`LAVISH_AXI_IDLE_TIMEOUT_MS` to one week: lavish stops an idle server after 30
+minutes, and a review whose window was closed has no poll, so its link would
+die while the reviewer is away.
+
+Lavish prints links on the machine's Tailscale name over plain HTTP, which
+browsers do not accept for `ts.net` names. The town setting
+`review_public_url` (for example `https://gastown-test.tail616a3d.ts.net:8443`,
+Tailscale Serve in front of lavish) replaces the base of every link gt prints.
+The same host name is passed as `LAVISH_AXI_ALLOWED_HOSTS`, because lavish
+rejects requests whose Host header it does not know.
+
+### The daemon watches
+
+Each heartbeat the daemon makes sure there is one child
+`lavish-axi poll <copy> --owner gt-review` per open review (no shell, tracked
+by the daemon). With no open review the tick does nothing. Poll is exclusive
+and is not killed while it waits; when the daemon shuts down the polls are
+stopped and undelivered feedback stays queued in lavish. After a crash, a poll
+left over from the earlier daemon is displaced with `--takeover` when lavish
+answers `LISTENER_ACTIVE`.
+
+`lavish-axi poll` has no JSON mode. Its only machine output is TOON on stdout,
+so gt reads that with a small parser, and a contract test drives a real session
+(`internal/review/contract_test.go`, skipped when lavish-axi is not installed).
+
+When poll returns:
+
+| Poll result | Record | Then |
+|---|---|---|
+| gt panel Approve | `approved` | bead label and comment, `lavish-axi reply`, tell the requester |
+| gt panel Request changes | `rejected` | same |
+| gt panel answer on a `question` | `answered` | same |
+| other feedback or annotations | stays `open`, feedback saved | reply, tell the requester, keep polling |
+| artifact failure | stays `open`, failure saved | tell the requester, keep polling |
+| Send & End | the decision above, else `ended`; the feedback is kept | tell the requester |
+| `browser_disconnected` | `disconnected` | no poll and no reopen; `gt review reopen <id>` resumes |
+
+The reply makes the browser stop showing Working. The requester is told by
+`gt nudge` when their session is alive, otherwise by `gt mail` to the mayor, so
+the outcome survives the agent's session.
+
+### The gate
+
+- Project setting `require_visual_review` (default false). When set,
+  `gt project feature land` (direct and PR, on every pass) waits unless the
+  epic or one of its tasks has an approved `approval` review and none is open
+  or rejected. The message says which. A rejected review blocks.
+- For each bead only the newest `approval` review counts, so a fixed page that
+  was approved again is not blocked by the old rejection. A review that was
+  cancelled or ended without a decision counts for nothing.
+- The refinery never lists a merge request as ready while its source bead has
+  an open or rejected `approval` review, whether or not the project requires
+  one (such a review exists only if someone asked). The MR stays queued and the
+  refinery log says why.
+- If the review store cannot be read, both gates fail closed.
+- `gt project feature status` prints a `Visual review:` line.
 
 ## Tools policy
 
@@ -489,7 +567,7 @@ a project (many repos) polecats are tabs, not nested worktree workspaces.
 | 2 | Org identity in agents, per-town AXI tool list, `gt doctor` checks | planned |
 | 3 | Project brain: brief, service map, read-only neighbours | done |
 | 4 | Multi-repo features: feature records, same-name branches, ordered dispatch, linked PRs and landing (direct and PR), GitHub and Azure DevOps PR providers | done |
-| 5 | Review gate: `gt review`, reviewer dog, refinery approval gate | planned |
+| 5 | Review gate: `gt review`, daemon watcher, feature land gate, refinery approval gate | done (tested against real lavish-axi through its API; the page panel is not yet tried in a real browser) |
 | 6 | Runtime routing by quota | planned |
 | 7 | Planning sync with Azure Boards / GitHub | planned |
 | 8 | AXI-style output for `gt` | planned |

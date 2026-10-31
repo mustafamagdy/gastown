@@ -18,6 +18,7 @@ import (
 	"github.com/steveyegge/gastown/internal/polecat"
 	"github.com/steveyegge/gastown/internal/projectfeature"
 	"github.com/steveyegge/gastown/internal/projectmap"
+	"github.com/steveyegge/gastown/internal/review"
 	"github.com/steveyegge/gastown/internal/rig"
 	"github.com/steveyegge/gastown/internal/style"
 	"github.com/steveyegge/gastown/internal/workspace"
@@ -655,6 +656,32 @@ type featureStatusOutput struct {
 	// LandingOrder and Blocking describe landing; Blocking says what stops it.
 	LandingOrder []string `json:"landing_order,omitempty"`
 	Blocking     []string `json:"blocking,omitempty"`
+	// VisualReview is the visual review state of the epic and its tasks; empty
+	// when no approval review exists and the project does not require one.
+	VisualReview string `json:"visual_review,omitempty"`
+}
+
+// featureBeadIDs returns the epic and task bead ids of a feature.
+func featureBeadIDs(rec *projectfeature.Record) []string {
+	ids := []string{rec.ID}
+	for _, t := range rec.Tasks {
+		ids = append(ids, t.ID)
+	}
+	return ids
+}
+
+// featureVisualReview describes the visual review state of a feature on one
+// line, or "" when there is nothing to say.
+func featureVisualReview(townRoot string, rec *projectfeature.Record, required bool) string {
+	g := review.FeatureGate(townRoot, featureBeadIDs(rec))
+	if !required && len(g.Reviews) == 0 {
+		return ""
+	}
+	line := g.Message
+	if !required {
+		line += " (not required by the project)"
+	}
+	return line
 }
 
 // featureBlockers says what keeps a feature from landing, from the record and
@@ -710,6 +737,11 @@ func runProjectFeatureStatus(cmd *cobra.Command, args []string) error {
 	}
 	out.LandingOrder = rec.LandingOrder
 	out.Blocking = featureBlockers(rec, views)
+	requireVisual := false
+	if pcfg, err := config.LoadProjectConfig(townRoot, rec.Project); err == nil {
+		requireVisual = config.ProjectLandSettings(pcfg).RequireVisualReview
+	}
+	out.VisualReview = featureVisualReview(townRoot, rec, requireVisual)
 	if featureStatusJSON {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
@@ -735,6 +767,9 @@ func runProjectFeatureStatus(cmd *cobra.Command, args []string) error {
 	}
 	if len(rec.LandingOrder) > 0 {
 		fmt.Printf("\nLanding order: %s\n", strings.Join(rec.LandingOrder, ", "))
+	}
+	if out.VisualReview != "" {
+		fmt.Printf("Visual review: %s\n", out.VisualReview)
 	}
 	if len(out.Blocking) > 0 {
 		fmt.Println("Blocking:")
@@ -891,6 +926,10 @@ func runProjectFeatureLand(cmd *cobra.Command, args []string) error {
 		OnLanded: func() error {
 			_, _, err := projectmap.Build(townRoot, rec.Project, projectmap.BuildOptions{})
 			return err
+		},
+		VisualGate: func() (bool, string) {
+			g := review.FeatureGate(townRoot, featureBeadIDs(rec))
+			return g.OK(), g.Message
 		},
 		Out:    os.Stdout,
 		DryRun: featureLandDryRun,

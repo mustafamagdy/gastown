@@ -100,6 +100,15 @@ type TownSettings struct {
 	// checks each one is installed, at the pinned version, and runs.
 	AxiTools []string `json:"axi_tools,omitempty"`
 
+	// ReviewPort is the port of the town's lavish review server. Default:
+	// the Dolt port plus 1080 (3307 gives 4387, 3308 gives 4388).
+	ReviewPort int `json:"review_port,omitempty"`
+
+	// ReviewPublicURL is the base URL people open review links on, for
+	// example "https://gastown-test.tail616a3d.ts.net:8443" (Tailscale Serve
+	// in front of lavish). When set, gt prints links on this base.
+	ReviewPublicURL string `json:"review_public_url,omitempty"`
+
 	// WebTimeouts configures command execution timeouts for the web dashboard.
 	WebTimeouts *WebTimeoutsConfig `json:"web_timeouts,omitempty"`
 
