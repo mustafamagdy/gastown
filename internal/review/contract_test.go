@@ -42,7 +42,13 @@ func TestLavishContract(t *testing.T) {
 	t.Cleanup(func() { _, _ = c.run(30*time.Second, "stop") })
 
 	page := filepath.Join(town, "page.html")
-	html := InjectPanel("<!doctype html><html><body style=\"background:#fff\"><h1>Plan</h1></body></html>", KindApproval)
+	// The page goes through the same cleaning as an approval request, and
+	// carries a script that must not survive.
+	clean, removed, err := StripActiveContent("<!doctype html><html><body style=\"background:#fff\"><h1>Plan</h1><script>window.pageScript=1</script></body></html>")
+	if err != nil || removed != 1 {
+		t.Fatalf("StripActiveContent: removed=%d err=%v", removed, err)
+	}
+	html := InjectPanel(clean, KindApproval)
 	if err := os.WriteFile(page, []byte(html), 0o644); err != nil {
 		t.Fatal(err)
 	}

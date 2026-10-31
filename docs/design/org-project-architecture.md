@@ -504,9 +504,16 @@ the outcome survives the agent's session.
 
 Known limits of the gate:
 
-- Page scripts run in the same page as the gt panel, so a script in an agent's
-  page could submit a decision. The gate guards against mistakes, not against a
-  hostile agent. Use PR review on the platform where that matters.
+- Page scripts run in the same page as the gt panel, so a script could submit
+  a decision. For kind `approval` only, `gt review request` parses the page copy
+  with an HTML parser and removes `<script>` elements, inline `on*` handlers,
+  `javascript:` URLs and `srcdoc` frames before it adds the panel, and prints
+  one line saying so. If the page cannot be parsed, the request is refused.
+  The panel's own script stays. Other kinds keep the agent's scripts. The
+  stored copy is cleaned, not the source file. Linked files next to the page
+  (other pages, script files) are copied as they are, so the gate still guards
+  against mistakes more than against a hostile agent. Use PR review on the
+  platform where that matters.
 - An approval is tied to code, not only to the page. `gt review request` with
   kind `approval` records what was reviewed: for the epic or a task of a
   feature, the tip of each rig's feature branch on origin; otherwise the git

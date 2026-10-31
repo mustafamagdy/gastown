@@ -170,7 +170,19 @@ func runReviewRequest(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(copyPath, []byte(review.InjectPanel(string(page), reviewKind)), 0o644); err != nil { //nolint:gosec // G306: a page, not a secret
+	pageText := string(page)
+	if reviewKind == review.KindApproval {
+		// A script in the page must not be able to submit the decision.
+		var removed int
+		pageText, removed, err = review.StripActiveContent(pageText)
+		if err != nil {
+			return fmt.Errorf("refusing the approval request: %w", err)
+		}
+		if removed > 0 {
+			fmt.Printf("Removed %d script(s), event handler(s) and javascript: link(s) from the approval page.\n", removed)
+		}
+	}
+	if err := os.WriteFile(copyPath, []byte(review.InjectPanel(pageText, reviewKind)), 0o644); err != nil { //nolint:gosec // G306: a page, not a secret
 		return err
 	}
 	client := reviewClient(townRoot)
