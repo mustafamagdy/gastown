@@ -507,8 +507,17 @@ Known limits of the gate:
 - Page scripts run in the same page as the gt panel, so a script in an agent's
   page could submit a decision. The gate guards against mistakes, not against a
   hostile agent. Use PR review on the platform where that matters.
-- An approval is for the page, not for a commit. Code that changes after the
-  approval does not reset it.
+- An approval is tied to code, not only to the page. `gt review request` with
+  kind `approval` records what was reviewed: for the epic or a task of a
+  feature, the tip of each rig's feature branch on origin; otherwise the git
+  HEAD of the working directory, when it is a repo. When a recorded commit
+  later differs from the current one, the approval stops counting in the
+  feature gate and in the refinery merge check, and the message says the code
+  changed since approval and to request a new review. If a recorded tip cannot
+  be read (branch deleted, work tree removed, no network), the gate fails
+  closed. A review with nothing recorded (not in a repo, no feature) behaves as
+  before. The tip is read for the working directory of the person who asked, so
+  it follows that directory, not the code the refinery merges.
 
 ## Tools policy
 

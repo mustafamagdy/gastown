@@ -52,7 +52,9 @@ func blocking(state string) bool {
 
 // FeatureGate decides whether a feature (its epic and task beads) is visually
 // approved: at least one approved approval review, and no open or rejected
-// one. If the store cannot be read the answer is "pending" (fail closed).
+// one. An approval counts only while the code is the same as when the review
+// was requested (see Record.Tips). If the store or a recorded commit cannot be
+// read the answer is "pending" (fail closed).
 func FeatureGate(townRoot string, beadIDs []string) GateResult {
 	recs, errs := List(townRoot)
 	if len(errs) > 0 {
@@ -64,7 +66,7 @@ func FeatureGate(townRoot string, beadIDs []string) GateResult {
 		list = append(list, r)
 	}
 	sort.Slice(list, func(i, j int) bool { return list[i].ID < list[j].ID })
-	var ids, rejected, open, approved []string
+	var ids, rejected, open, approved, stale, unread []string
 	for _, r := range list {
 		ids = append(ids, r.ID)
 		switch {
@@ -73,7 +75,15 @@ func FeatureGate(townRoot string, beadIDs []string) GateResult {
 		case blocking(r.State):
 			open = append(open, fmt.Sprintf("%s (%s)", r.ID, r.Bead))
 		case r.State == StateApproved:
-			approved = append(approved, r.ID)
+			moved, err := CodeChanged(r)
+			switch {
+			case err != nil:
+				unread = append(unread, fmt.Sprintf("%s (%s): %v", r.ID, r.Bead, err))
+			case moved != "":
+				stale = append(stale, fmt.Sprintf("%s (%s): %s", r.ID, r.Bead, moved))
+			default:
+				approved = append(approved, r.ID)
+			}
 		}
 	}
 	switch {
@@ -83,6 +93,12 @@ func FeatureGate(townRoot string, beadIDs []string) GateResult {
 	case len(open) > 0:
 		return GateResult{Status: GatePending, Reviews: ids,
 			Message: "visual review pending: " + strings.Join(open, ", ") + " waiting for the reviewer"}
+	case len(unread) > 0:
+		return GateResult{Status: GatePending, Reviews: ids,
+			Message: "visual review cannot be checked: " + strings.Join(unread, "; ")}
+	case len(approved) == 0 && len(stale) > 0:
+		return GateResult{Status: GatePending, Reviews: ids,
+			Message: "visual review out of date: the code changed since approval (" + strings.Join(stale, "; ") + "); run 'gt review request <page.html> --bead <id> --kind approval' for a new review"}
 	case len(approved) == 0:
 		return GateResult{Status: GatePending,
 			Message: "visual review required: no approved review yet; run 'gt review request <page.html> --bead <id> --kind approval'"}
@@ -93,7 +109,8 @@ func FeatureGate(townRoot string, beadIDs []string) GateResult {
 // MergeBlock says whether the refinery must leave a merge request queued
 // because its source bead has an open or rejected approval review. It applies
 // whether or not a project asks for visual review, since such a review exists
-// only when someone requested it. An unreadable store blocks (fail closed);
+// only when someone requested it. An approval whose recorded code has moved
+// also blocks. An unreadable store blocks (fail closed);
 // a town with no store never blocks.
 func MergeBlock(townRoot, sourceBead string) (bool, string) {
 	if sourceBead == "" {
@@ -109,8 +126,21 @@ func MergeBlock(townRoot, sourceBead string) (bool, string) {
 	if len(errs) > 0 {
 		return true, fmt.Sprintf("review store unreadable: %v", errs[0])
 	}
-	if r := latestApprovals(recs, []string{sourceBead})[sourceBead]; r != nil && blocking(r.State) {
+	r := latestApprovals(recs, []string{sourceBead})[sourceBead]
+	if r == nil {
+		return false, ""
+	}
+	if blocking(r.State) {
 		return true, fmt.Sprintf("approval review %s on %s is %s", r.ID, sourceBead, r.State)
+	}
+	if r.State == StateApproved {
+		moved, err := CodeChanged(r)
+		if err != nil {
+			return true, fmt.Sprintf("approval review %s on %s cannot be checked: %v", r.ID, sourceBead, err)
+		}
+		if moved != "" {
+			return true, fmt.Sprintf("the code changed since approval review %s on %s (%s); request a new review", r.ID, sourceBead, moved)
+		}
 	}
 	return false, ""
 }

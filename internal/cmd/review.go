@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sort"
 	"strings"
 	"syscall"
 	"text/tabwriter"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/steveyegge/gastown/internal/mail"
+	"github.com/steveyegge/gastown/internal/projectfeature"
 	"github.com/steveyegge/gastown/internal/review"
 	"github.com/steveyegge/gastown/internal/tmux"
 	"github.com/steveyegge/gastown/internal/workspace"
@@ -142,6 +144,10 @@ func runReviewRequest(cmd *cobra.Command, args []string) error {
 	if _, err := getBeadInfoFromTownRoot(townRoot, reviewBead); err != nil {
 		return fmt.Errorf("bead %s: %w", reviewBead, err)
 	}
+	tips, err := reviewTips(townRoot, reviewBead, reviewKind)
+	if err != nil {
+		return err
+	}
 	id, err := review.NewID()
 	if err != nil {
 		return err
@@ -178,7 +184,7 @@ func runReviewRequest(cmd *cobra.Command, args []string) error {
 	src, _ := filepath.Abs(args[0])
 	rec := &review.Record{
 		ID: id, Bead: reviewBead, Kind: reviewKind, HTML: copyPath, Source: src,
-		URL: link, Requester: detectSender(), State: review.StateOpen,
+		URL: link, Requester: detectSender(), State: review.StateOpen, Tips: tips,
 	}
 	if err := review.Create(townRoot, rec); err != nil {
 		_ = client.End(copyPath)
@@ -191,6 +197,60 @@ func runReviewRequest(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Printf("Review %s (%s) requested for %s. Open: %s\n", id, reviewKind, reviewBead, link)
 	return nil
+}
+
+// reviewTips records what an approval review is about, so the gate can tell
+// when the code changed after the approval. For the epic or a task of a
+// feature it is the feature branch tip of each rig that has one; otherwise it
+// is the git HEAD of the working directory, when that is a repo. It returns
+// nothing for other kinds, and nothing when there is nothing to record. A tip
+// that exists but cannot be read is an error.
+func reviewTips(townRoot, bead, kind string) ([]review.Tip, error) {
+	if kind != review.KindApproval {
+		return nil, nil
+	}
+	rec, err := projectfeature.Find(townRoot, bead)
+	if err != nil {
+		rec, _, err = projectfeature.ResolveForBead(townRoot, bead)
+	}
+	if err != nil && !errors.Is(err, projectfeature.ErrNotFound) {
+		return nil, err
+	}
+	if rec != nil {
+		names := make([]string, 0, len(rec.Rigs))
+		for name, rs := range rec.Rigs {
+			switch rs.State {
+			case projectfeature.RigBranch, projectfeature.RigPROpen, projectfeature.RigHeld:
+				names = append(names, name)
+			}
+		}
+		sort.Strings(names)
+		var tips []review.Tip
+		for _, name := range names {
+			repo, err := featureRigRepo(townRoot, name)
+			if err != nil {
+				return nil, fmt.Errorf("recording the code under review: %w", err)
+			}
+			tip, err := review.BranchTip(name, repo.GitDir, rec.Branch)
+			if err != nil {
+				return nil, fmt.Errorf("recording the code under review: %w", err)
+			}
+			tips = append(tips, tip)
+		}
+		return tips, nil
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return nil, nil
+	}
+	tip, err := review.HeadTip(cwd)
+	if err != nil {
+		return nil, fmt.Errorf("recording the code under review: %w", err)
+	}
+	if tip == nil {
+		return nil, nil
+	}
+	return []review.Tip{*tip}, nil
 }
 
 func runReviewList(cmd *cobra.Command, args []string) error {

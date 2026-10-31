@@ -75,6 +75,7 @@ type Record struct {
 	Requester string     `json:"requester"` // mail address of the asking agent
 	State     string     `json:"state"`
 	Feedback  []Feedback `json:"feedback,omitempty"`
+	Tips      []Tip      `json:"tips,omitempty"`  // code the reviewer saw (approval only); empty if none could be recorded
 	Error     string     `json:"error,omitempty"` // last problem the watcher saw
 	CreatedAt time.Time  `json:"created_at"`
 	UpdatedAt time.Time  `json:"updated_at"`
