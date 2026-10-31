@@ -10,8 +10,7 @@ import (
 )
 
 // Azure DevOps via `az repos pr ... --output json` (azure-devops extension).
-// The argument shapes follow the az documentation and have not been run
-// against a real organization from this code.
+// Authentication is az's own per-organization store, filled by 'gt azure login'.
 
 const (
 	defaultAzurePoll    = 3 * time.Second

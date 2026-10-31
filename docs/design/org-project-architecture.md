@@ -375,6 +375,15 @@ calls `gh` directly).
   or less rejected. Completion is asynchronous, so `Merge` polls
   `az repos pr show` until the PR is completed, within a timeout, and reads the
   merge commit from `lastMergeCommit`.
+- Azure tokens are scoped to the Azure organization, not to a town or project:
+  `gt azure login <org>` reads a PAT (terminal or stdin, never an argument),
+  checks it with `az devops login`, which also fills az's own per-organization
+  store, and saves it to `~/.config/gt/azure/<org>.pat` (mode 0600). A global
+  git credential helper, limited to Azure hosts, answers from that file by the
+  organization in the URL and stays silent for any other organization. So every
+  agent, the daemon and plain `az` and `git` get the token with no per-project
+  setup. PATs are needed because some organizations reject the az login token
+  for git and REST (TF400813).
 - `vcs.ForRemote(url)` detects the provider; `vcs.New("github"|"azure")` picks
   one. Bitbucket returns an unsupported error.
 - Project settings `merge_strategy` (pr by default), `vcs_provider` (detected
