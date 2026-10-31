@@ -2122,7 +2122,7 @@ func (e *Engineer) ListReadyMRs() ([]*MRInfo, error) {
 
 		// Visual review gate: leave the MR queued while its source bead has an
 		// open or rejected approval review (or the review store is unreadable).
-		if blocked, why := review.MergeBlock(filepath.Dir(e.rig.Path), fields.SourceIssue); blocked {
+		if blocked, why := review.MergeBlock(filepath.Dir(e.rig.Path), fields.SourceIssue, fields.CommitSHA); blocked {
 			_, _ = fmt.Fprintf(e.output, "[Engineer] Not merging %s yet: %s (visual review)\n", issue.ID, why)
 			continue
 		}

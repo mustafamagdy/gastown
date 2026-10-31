@@ -297,14 +297,14 @@ func TestFeatureGateFailsClosedOnUnreadableStore(t *testing.T) {
 	if g.OK() || !strings.Contains(g.Message, "unreadable") {
 		t.Fatalf("store error must not approve: %+v", g)
 	}
-	if blocked, _ := MergeBlock(town, "task-1"); !blocked {
+	if blocked, _ := MergeBlock(town, "task-1", ""); !blocked {
 		t.Fatal("unreadable store must block merges")
 	}
 }
 
 func TestMergeBlock(t *testing.T) {
 	town := t.TempDir()
-	if blocked, _ := MergeBlock(town, "gt-1"); blocked {
+	if blocked, _ := MergeBlock(town, "gt-1", ""); blocked {
 		t.Fatal("a town without reviews blocked a merge")
 	}
 	newRec(t, town, "rv-00000001", "gt-1", KindApproval, StateOpen, time.Hour)
@@ -312,7 +312,7 @@ func TestMergeBlock(t *testing.T) {
 	newRec(t, town, "rv-00000003", "gt-3", KindPlan, StateOpen, time.Hour)
 	newRec(t, town, "rv-00000004", "gt-4", KindApproval, StateRejected, time.Hour)
 	for bead, want := range map[string]bool{"gt-1": true, "gt-2": false, "gt-3": false, "gt-4": true, "gt-5": false, "": false} {
-		if blocked, why := MergeBlock(town, bead); blocked != want {
+		if blocked, why := MergeBlock(town, bead, ""); blocked != want {
 			t.Errorf("MergeBlock(%q) = %v (%s), want %v", bead, blocked, why, want)
 		}
 	}

@@ -54,8 +54,9 @@ func TestFeatureGateApprovalStopsCountingWhenCodeMoves(t *testing.T) {
 			t.Errorf("message %q lacks %q", g.Message, want)
 		}
 	}
-	if blocked, why := MergeBlock(town, "task-1"); !blocked || !strings.Contains(why, "code changed since approval") {
-		t.Errorf("MergeBlock = %v, %q", blocked, why)
+	// A feature branch moves as other tasks merge; FeatureGate owns that.
+	if blocked, why := MergeBlock(town, "task-1", "dddd4444"); blocked {
+		t.Errorf("MergeBlock blocked on a feature branch tip: %s", why)
 	}
 
 	// A newer approval for the new code counts again.
@@ -63,8 +64,21 @@ func TestFeatureGateApprovalStopsCountingWhenCodeMoves(t *testing.T) {
 	if g := FeatureGate(town, beads); !g.OK() {
 		t.Fatalf("new approval: %+v", g)
 	}
-	if blocked, why := MergeBlock(town, "task-1"); blocked {
-		t.Errorf("MergeBlock blocked a fresh approval: %s", why)
+}
+
+// The polecat's worktree is gone by merge time, so only the commit counts.
+func TestMergeBlockComparesTheMRCommit(t *testing.T) {
+	town := t.TempDir()
+	newTipRec(t, town, "rv-00000001", "task-1", StateApproved, Tip{Name: "head", Repo: "/gone", Commit: "aaaa1111"})
+	fakeCommits(t, map[string]string{})
+	if blocked, why := MergeBlock(town, "task-1", "aaaa1111"); blocked {
+		t.Errorf("same commit blocked: %s", why)
+	}
+	if blocked, why := MergeBlock(town, "task-1", "bbbb2222"); !blocked || !strings.Contains(why, "code changed since approval") {
+		t.Errorf("new commit: %v, %q", blocked, why)
+	}
+	if blocked, why := MergeBlock(town, "task-1", ""); !blocked || !strings.Contains(why, "no commit") {
+		t.Errorf("no commit: %v, %q", blocked, why)
 	}
 }
 
@@ -75,9 +89,6 @@ func TestGateFailsClosedWhenTipUnreadable(t *testing.T) {
 	if g := FeatureGate(town, []string{"task-1"}); g.OK() || !strings.Contains(g.Message, "cannot be checked") {
 		t.Fatalf("unreadable tip approved: %+v", g)
 	}
-	if blocked, _ := MergeBlock(town, "task-1"); !blocked {
-		t.Fatal("unreadable tip must block the merge")
-	}
 }
 
 func TestGateWithoutTipsKeepsOldBehaviour(t *testing.T) {
@@ -87,7 +98,7 @@ func TestGateWithoutTipsKeepsOldBehaviour(t *testing.T) {
 	if g := FeatureGate(town, []string{"task-1"}); !g.OK() {
 		t.Fatalf("no tips: %+v", g)
 	}
-	if blocked, _ := MergeBlock(town, "task-1"); blocked {
+	if blocked, _ := MergeBlock(town, "task-1", ""); blocked {
 		t.Fatal("no tips must not block")
 	}
 }

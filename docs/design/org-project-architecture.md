@@ -520,11 +520,12 @@ Known limits of the gate:
   HEAD of the working directory, when it is a repo. When a recorded commit
   later differs from the current one, the approval stops counting in the
   feature gate and in the refinery merge check, and the message says the code
-  changed since approval and to request a new review. If a recorded tip cannot
-  be read (branch deleted, work tree removed, no network), the gate fails
-  closed. A review with nothing recorded (not in a repo, no feature) behaves as
-  before. The tip is read for the working directory of the person who asked, so
-  it follows that directory, not the code the refinery merges.
+  changed since approval and to request a new review. The refinery compares a
+  working directory review to the commit the merge request submitted, because
+  a polecat's worktree is usually gone by then. Feature branch reviews are
+  checked at landing only, since other tasks move that branch. If a feature
+  tip cannot be read, or a merge request has no commit, the gate fails closed.
+  A review with nothing recorded (not in a repo, no feature) behaves as before.
 
 ## Tools policy
 

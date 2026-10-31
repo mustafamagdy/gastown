@@ -112,7 +112,12 @@ func FeatureGate(townRoot string, beadIDs []string) GateResult {
 // only when someone requested it. An approval whose recorded code has moved
 // also blocks. An unreadable store blocks (fail closed);
 // a town with no store never blocks.
-func MergeBlock(townRoot, sourceBead string) (bool, string) {
+//
+// mrCommit is the commit the merge request submitted. A review of a working
+// directory is compared to it, not to the directory, which is usually gone by
+// now. A review of a feature branch is left to FeatureGate: other tasks move
+// that branch, and the feature lands as a whole.
+func MergeBlock(townRoot, sourceBead, mrCommit string) (bool, string) {
 	if sourceBead == "" {
 		return false, ""
 	}
@@ -134,12 +139,16 @@ func MergeBlock(townRoot, sourceBead string) (bool, string) {
 		return true, fmt.Sprintf("approval review %s on %s is %s", r.ID, sourceBead, r.State)
 	}
 	if r.State == StateApproved {
-		moved, err := CodeChanged(r)
-		if err != nil {
-			return true, fmt.Sprintf("approval review %s on %s cannot be checked: %v", r.ID, sourceBead, err)
-		}
-		if moved != "" {
-			return true, fmt.Sprintf("the code changed since approval review %s on %s (%s); request a new review", r.ID, sourceBead, moved)
+		for _, t := range r.Tips {
+			if t.Branch != "" {
+				continue
+			}
+			if mrCommit == "" {
+				return true, fmt.Sprintf("approval review %s on %s cannot be checked: the merge request has no commit", r.ID, sourceBead)
+			}
+			if t.Commit != mrCommit {
+				return true, fmt.Sprintf("the code changed since approval review %s on %s (%s -> %s); request a new review", r.ID, sourceBead, short(t.Commit), short(mrCommit))
+			}
 		}
 	}
 	return false, ""
