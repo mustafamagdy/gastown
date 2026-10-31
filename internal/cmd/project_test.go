@@ -251,3 +251,31 @@ func TestRoleProjectContextAndTemplates(t *testing.T) {
 		}
 	}
 }
+
+func TestSnapshotTownBeadsRestores(t *testing.T) {
+	town := t.TempDir()
+	path := filepath.Join(town, ".beads", "metadata.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`{"dolt_database":"hq"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	restore, err := snapshotTownBeads(town)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`{"dolt_database":"shop"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := restore(); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != `{"dolt_database":"hq"}` {
+		t.Fatalf("metadata not restored: %s", got)
+	}
+}

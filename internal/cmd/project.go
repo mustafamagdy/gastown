@@ -225,9 +225,21 @@ func createProject(townRoot string, cfg *config.ProjectConfig, skipDoltCheck boo
 	cleanup := func() { _ = os.RemoveAll(projectDir) }
 
 	mgr := rig.NewManager(townRoot, rigsConfig, git.NewGit(townRoot))
-	if err := mgr.InitBeads(projectDir, cfg.Prefix, cfg.Name); err != nil {
+	// bd init finds the town's git root and rewrites the town's own beads
+	// config there, which would move hq onto the project's database.
+	restoreTownBeads, err := snapshotTownBeads(townRoot)
+	if err != nil {
 		cleanup()
-		return fmt.Errorf("initializing project beads: %w", err)
+		return err
+	}
+	initErr := mgr.InitBeads(projectDir, cfg.Prefix, cfg.Name)
+	if err := restoreTownBeads(); err != nil {
+		cleanup()
+		return err
+	}
+	if initErr != nil {
+		cleanup()
+		return fmt.Errorf("initializing project beads: %w", initErr)
 	}
 	route := beads.Route{Prefix: cfg.Prefix + "-", Path: filepath.ToSlash(filepath.Join("projects", cfg.Name))}
 	if err := beads.AppendRoute(townRoot, route); err != nil {
@@ -243,6 +255,31 @@ func createProject(townRoot string, cfg *config.ProjectConfig, skipDoltCheck boo
 		return err
 	}
 	return nil
+}
+
+// snapshotTownBeads saves the town's beads config files and returns a function
+// that puts them back as they were.
+func snapshotTownBeads(townRoot string) (func() error, error) {
+	saved := map[string][]byte{}
+	for _, name := range []string{"metadata.json", "config.yaml"} {
+		path := filepath.Join(townRoot, ".beads", name)
+		data, err := os.ReadFile(path)
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			return nil, fmt.Errorf("reading town beads config: %w", err)
+		}
+		saved[path] = data
+	}
+	return func() error {
+		for path, data := range saved {
+			if err := os.WriteFile(path, data, 0600); err != nil {
+				return fmt.Errorf("restoring town beads config: %w", err)
+			}
+		}
+		return nil
+	}, nil
 }
 
 // writeProjectContextIfMissing writes a starter CONTEXT.md for the project.

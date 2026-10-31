@@ -502,6 +502,14 @@ the outcome survives the agent's session.
 - If the review store cannot be read, both gates fail closed.
 - `gt project feature status` prints a `Visual review:` line.
 
+Known limits of the gate:
+
+- Page scripts run in the same page as the gt panel, so a script in an agent's
+  page could submit a decision. The gate guards against mistakes, not against a
+  hostile agent. Use PR review on the platform where that matters.
+- An approval is for the page, not for a commit. Code that changes after the
+  approval does not reset it.
+
 ## Tools policy
 
 | Caller | Uses | Why |
