@@ -131,6 +131,16 @@ func TestCreateProject(t *testing.T) {
 	if !found {
 		t.Errorf("route xe- -> projects/xelta missing: %+v", routes)
 	}
+	// bd warns on every command when .beads is group or world readable.
+	if runtime.GOOS != "windows" {
+		fi, err := os.Stat(filepath.Join(townRoot, "projects", "xelta", ".beads"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if perm := fi.Mode().Perm(); perm != 0o700 {
+			t.Errorf(".beads mode = %o, want 700", perm)
+		}
+	}
 	ctxData, err := os.ReadFile(config.ProjectContextPath(townRoot, "xelta"))
 	if err != nil {
 		t.Fatalf("CONTEXT.md missing: %v", err)
