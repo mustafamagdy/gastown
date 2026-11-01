@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/steveyegge/gastown/internal/axiout"
 	"github.com/steveyegge/gastown/internal/beads"
 	"github.com/steveyegge/gastown/internal/config"
 	"github.com/steveyegge/gastown/internal/deps"
@@ -30,6 +31,7 @@ var (
 	featureTaskDesc       string
 	featureTaskAfter      []string
 	featureStatusJSON     bool
+	featureStatusAxi      bool
 	featureRunDryRun      bool
 	featureRunIfStarted   bool
 	featureRunNoBoot      bool
@@ -167,6 +169,7 @@ func init() {
 	projectFeatureTaskCmd.Flags().StringSliceVar(&featureTaskAfter, "after", nil, "Task id this task waits for (repeatable)")
 
 	projectFeatureStatusCmd.Flags().BoolVar(&featureStatusJSON, "json", false, "Output as JSON")
+	projectFeatureStatusCmd.Flags().BoolVar(&featureStatusAxi, "axi", false, "Compact AXI-style output for agents (also GT_OUTPUT=axi)")
 
 	projectFeatureRunCmd.Flags().BoolVar(&featureRunDryRun, "dry-run", false, "Show what would be slung")
 	projectFeatureRunCmd.Flags().BoolVar(&featureRunIfStarted, "if-started", false, "Do nothing unless a task has already started (used by the daemon)")
@@ -746,6 +749,10 @@ func runProjectFeatureStatus(cmd *cobra.Command, args []string) error {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
 		return enc.Encode(out)
+	}
+	if axiout.Wanted(featureStatusAxi, featureStatusJSON) {
+		fmt.Print(renderFeatureStatusAxi(out))
+		return nil
 	}
 
 	fmt.Printf("%s  %s\n", style.Bold.Render(rec.ID), rec.Title)

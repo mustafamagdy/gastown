@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/steveyegge/gastown/internal/axiout"
 	"github.com/steveyegge/gastown/internal/beads"
 	"github.com/steveyegge/gastown/internal/config"
 	"github.com/steveyegge/gastown/internal/git"
@@ -499,6 +500,11 @@ func runMoleculeStatus(cmd *cobra.Command, args []string) error {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
 		return enc.Encode(status)
+	}
+
+	if axiout.Wanted(hookAxi, moleculeJSON) {
+		fmt.Print(renderHookAxi(status))
+		return nil
 	}
 
 	// Human-readable output

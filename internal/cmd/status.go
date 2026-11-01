@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/steveyegge/gastown/internal/axiout"
 	"github.com/steveyegge/gastown/internal/beads"
 	"github.com/steveyegge/gastown/internal/config"
 	"github.com/steveyegge/gastown/internal/constants"
@@ -32,6 +33,7 @@ import (
 )
 
 var statusJSON bool
+var statusAxi bool
 var statusFast bool
 var statusWatch bool
 var statusInterval int
@@ -54,6 +56,7 @@ Use --watch to continuously refresh status at regular intervals.`,
 
 func init() {
 	statusCmd.Flags().BoolVar(&statusJSON, "json", false, "Output as JSON")
+	statusCmd.Flags().BoolVar(&statusAxi, "axi", false, "Compact AXI-style output for agents (also GT_OUTPUT=axi)")
 	statusCmd.Flags().BoolVar(&statusFast, "fast", false, "Skip mail lookups for faster execution")
 	statusCmd.Flags().BoolVarP(&statusWatch, "watch", "w", false, "Watch mode: refresh status continuously")
 	statusCmd.Flags().IntVarP(&statusInterval, "interval", "n", 2, "Refresh interval in seconds")
@@ -600,6 +603,10 @@ func runStatusOnce(_ *cobra.Command, _ []string) error {
 	}
 	if statusJSON {
 		return outputStatusJSON(status)
+	}
+	if axiout.Wanted(statusAxi, statusJSON) {
+		fmt.Print(renderStatusAxi(status, axiEstopText(status.Location)))
+		return nil
 	}
 	return outputStatusText(os.Stdout, status)
 }

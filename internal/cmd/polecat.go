@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/steveyegge/gastown/internal/axiout"
 	"github.com/steveyegge/gastown/internal/beads"
 	"github.com/steveyegge/gastown/internal/git"
 	"github.com/steveyegge/gastown/internal/polecat"
@@ -23,6 +24,7 @@ import (
 // Polecat command flags
 var (
 	polecatListJSON  bool
+	polecatListAxi   bool
 	polecatListAll   bool
 	polecatForce     bool
 	polecatRemoveAll bool
@@ -327,6 +329,7 @@ Examples:
 func init() {
 	// List flags
 	polecatListCmd.Flags().BoolVar(&polecatListJSON, "json", false, "Output as JSON")
+	polecatListCmd.Flags().BoolVar(&polecatListAxi, "axi", false, "Compact AXI-style output for agents (also GT_OUTPUT=axi)")
 	polecatListCmd.Flags().BoolVar(&polecatListAll, "all", false, "List polecats in all rigs")
 
 	// Remove flags
@@ -576,6 +579,15 @@ func runPolecatList(cmd *cobra.Command, args []string) error {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
 		return enc.Encode(allPolecats)
+	}
+
+	if axiout.Wanted(polecatListAxi, polecatListJSON) {
+		rigArg := ""
+		if !polecatListAll && len(args) > 0 {
+			rigArg = args[0]
+		}
+		fmt.Print(renderPolecatListAxi(rigArg, allPolecats))
+		return nil
 	}
 
 	if len(allPolecats) == 0 {

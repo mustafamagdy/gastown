@@ -153,6 +153,7 @@ var (
 	hookDryRun  bool
 	hookForce   bool
 	hookClear   bool
+	hookAxi     bool
 )
 
 func init() {
@@ -166,6 +167,8 @@ func init() {
 	// --json flag for status output (used when no args, i.e., gt hook --json)
 	hookCmd.Flags().BoolVar(&moleculeJSON, "json", false, "Output as JSON (for status)")
 	hookStatusCmd.Flags().BoolVar(&moleculeJSON, "json", false, "Output as JSON")
+	hookCmd.Flags().BoolVar(&hookAxi, "axi", false, "Compact AXI-style output for agents (for status; also GT_OUTPUT=axi)")
+	hookStatusCmd.Flags().BoolVar(&hookAxi, "axi", false, "Compact AXI-style output for agents (also GT_OUTPUT=axi)")
 	hookShowCmd.Flags().BoolVar(&moleculeJSON, "json", false, "Output as JSON")
 
 	// Flags for attach subcommand

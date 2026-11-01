@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/steveyegge/gastown/internal/axiout"
 	"github.com/steveyegge/gastown/internal/beads"
 	"github.com/steveyegge/gastown/internal/git"
 	"github.com/steveyegge/gastown/internal/refinery"
@@ -181,6 +182,40 @@ func runMQList(cmd *cobra.Command, args []string) error {
 			return outputJSON(verified)
 		}
 		return outputJSON(filtered)
+	}
+
+	if axiout.Wanted(mqListAxi, mqListJSON) {
+		rows := make([]axiMQRow, 0, len(scored))
+		for _, item := range scored {
+			row := axiMQRow{ID: item.issue.ID, Priority: item.issue.Priority, Status: item.issue.Status,
+				Age: formatMRAge(item.issue.CreatedAt)}
+			switch item.issue.Status {
+			case "open":
+				row.Status = "ready"
+				if beads.HasUnresolvedBlockers(item.issue) {
+					row.Status = "blocked"
+					row.WaitsOn = beads.FirstUnresolvedBlockerID(item.issue)
+				}
+			case "in_progress":
+				row.Status = "active"
+			}
+			if item.fields != nil {
+				row.Branch, row.Target = item.fields.Branch, item.fields.Target
+			}
+			if mqListVerify {
+				switch {
+				case item.branchVerifyErr:
+					row.Git = "ERR"
+				case item.branchMissing:
+					row.Git = "MISSING"
+				default:
+					row.Git = "OK"
+				}
+			}
+			rows = append(rows, row)
+		}
+		fmt.Print(renderMQListAxi(rigName, rows, mqListVerify))
+		return nil
 	}
 
 	// Human-readable output

@@ -40,6 +40,7 @@ var (
 	mqListWorker string
 	mqListEpic   string
 	mqListJSON   bool
+	mqListAxi    bool
 	mqListVerify bool
 
 	// Status command flags
@@ -348,6 +349,7 @@ func init() {
 	mqListCmd.Flags().StringVar(&mqListWorker, "worker", "", "Filter by worker name")
 	mqListCmd.Flags().StringVar(&mqListEpic, "epic", "", "Show MRs targeting integration/<epic>")
 	mqListCmd.Flags().BoolVar(&mqListJSON, "json", false, "Output as JSON")
+	mqListCmd.Flags().BoolVar(&mqListAxi, "axi", false, "Compact AXI-style output for agents (also GT_OUTPUT=axi)")
 	mqListCmd.Flags().BoolVar(&mqListVerify, "verify", false, "Verify branches exist in git (shows MISSING for deleted branches)")
 
 	// Reject flags
