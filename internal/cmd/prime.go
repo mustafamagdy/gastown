@@ -542,6 +542,7 @@ func outputRoleContext(ctx RoleContext) (string, error) {
 	outputProjectContextFile(ctx)
 	outputProjectBrainContext(ctx)
 	outputServiceMapContext(ctx)
+	outputAxiContext(ctx)
 	outputHandoffContent(ctx)
 	outputAttachmentStatus(ctx)
 	return formula, nil
