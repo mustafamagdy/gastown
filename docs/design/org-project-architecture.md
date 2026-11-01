@@ -550,8 +550,38 @@ tests.
 
 Each town lists the AXI tools it needs in the `axi_tools` setting: tool names,
 each optionally pinned as `name@version` (see the snippet under "Org =
-town"). `contrib/fork-host/install-axi.sh` installs the pinned versions. Merging their
-session-start context into `gt prime` is planned (phase 2b), not implemented yet.
+town"). `contrib/fork-host/install-axi.sh` installs the pinned versions.
+
+### Session context in `gt prime`
+
+AXI tools can install a session-start hook per runtime (`gh-axi setup hooks`,
+`az-axi setup hooks`). Instead, `gt prime` prints their context for every
+runtime, following the town's `axi_tools` list, so no per-tool hook is needed.
+
+- Which command: a table in `internal/axictx` keyed by tool name. It holds
+  what each tool's own hook runs, read from the installed tools: for `gh-axi`
+  and `az-axi` that is the bare binary (the home view, no arguments). `lavish-axi`
+  and `quota-axi` have no `setup hooks` and no session view, so they are not in
+  the table and are skipped. A tool is added only after checking its hook.
+- Where: the full prime path only, after the project CONTEXT.md, brain and
+  service map sections. The compaction and resume path of `gt prime --hook`
+  stays light and prints none. With `--dry-run` nothing runs; `--explain` says
+  what would.
+- How: one block `## AXI context: <tool>` per tool in `axi_tools` order, run in
+  the town root with the org environment, in parallel, 5 seconds each. A town
+  with no `axi_tools` (or none with a session view) runs and prints nothing.
+- Cache: `<town>/.runtime/axi-context/<tool>.txt` (directory 0700, file 0600,
+  written atomically), reused for 10 minutes, so most primes run no tool. A
+  failure is not cached.
+- Failure: `gt prime` never fails because of this. A tool that is missing,
+  times out or exits non-zero prints one dim line naming it and no context. A
+  cache older than 10 minutes is never used when the refresh fails.
+- Output: at most 1500 bytes per tool, cut at a line boundary with a
+  "(truncated)" note. Control characters are removed. gt treats the text as
+  data and does not parse it.
+
+The view is the tool's own, so it can include account details (`az-axi` shows
+the subscription and user); it is the same text its hook would give the agent.
 
 `gt doctor` runs two checks:
 
@@ -656,6 +686,7 @@ a project (many repos) polecats are tabs, not nested worktree workspaces.
 | 0 | Fork host setup in `contrib/fork-host`, this document | done |
 | 1 | Project layer: config, `gt project`, project beads, prime context, rigs on demand, herdr grouping | done (tested on the `contrib/project-demo` shop project) |
 | 2 | Org identity in agents, per-town AXI tool list, `gt doctor` checks | planned |
+| 2b | AXI session context in `gt prime`, per town `axi_tools` | done (tested with fake tools and the real `gh-axi` and `az-axi`; not run in a live agent session) |
 | 3 | Project brain: brief, service map, read-only neighbours | done |
 | 4 | Multi-repo features: feature records, same-name branches, ordered dispatch, linked PRs and landing (direct and PR), GitHub and Azure DevOps PR providers | done |
 | 5 | Review gate: `gt review`, daemon watcher, feature land gate, refinery approval gate | done (tested against real lavish-axi through its API; the page panel is not yet tried in a real browser) |
