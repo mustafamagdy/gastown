@@ -100,7 +100,7 @@ func TestAzureSetState(t *testing.T) {
 }
 
 const ghListJSON = `[{"number":7,"title":"Credits epic","body":"Epic body","state":"OPEN","url":"https://github.com/o/r/issues/7","labels":[{"name":"gt-ready","color":"ededed"}]}]`
-const ghView7 = `{"number":7,"title":"Credits epic","body":"Epic body\n- [ ] #99","state":"OPEN","url":"https://github.com/o/r/issues/7","labels":[{"name":"gt-ready"},{"name":"gt-active"}],"subIssues":[{"number":8},{"number":9}]}`
+const ghView7 = `{"number":7,"title":"Credits epic","body":"Epic body\n- [ ] #99","state":"OPEN","url":"https://github.com/o/r/issues/7","labels":[{"name":"gt-ready"},{"name":"gt-active"}],"subIssues":{"nodes":[{"number":8},{"number":9}]}}`
 const ghView8 = `{"number":8,"title":"API","body":"api work","state":"OPEN","url":"https://github.com/o/r/issues/8","labels":[{"name":"rig:api"}]}`
 const ghView9 = `{"number":9,"title":"Web","body":"","state":"CLOSED","url":"https://github.com/o/r/issues/9","labels":[]}`
 
@@ -152,7 +152,7 @@ func TestGitHubListGetAndWrites(t *testing.T) {
 }
 
 func TestGitHubTaskListFallback(t *testing.T) {
-	parent := `{"number":7,"title":"E","body":"Plan\n- [ ] #8\n- [x] #9\n* [ ] #8\ntext #10","state":"OPEN","url":"u","labels":[],"subIssues":[]}`
+	parent := `{"number":7,"title":"E","body":"Plan\n- [ ] #8\n- [x] #9\n* [ ] #8\ntext #10","state":"OPEN","url":"u","labels":[],"subIssues":{"nodes":[]}}`
 	f := newFake().on("issue view 7 ", parent).on("issue view 8 ", ghView8).on("issue view 9 ", ghView9)
 	tr, _ := New(githubCfg(), f.run)
 	it, err := tr.Get(context.Background(), "7")

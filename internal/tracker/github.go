@@ -41,8 +41,10 @@ type ghIssue struct {
 	Labels []struct {
 		Name string `json:"name"`
 	} `json:"labels"`
-	SubIssues []struct {
-		Number int `json:"number"`
+	SubIssues struct {
+		Nodes []struct {
+			Number int `json:"number"`
+		} `json:"nodes"`
 	} `json:"subIssues"`
 }
 
@@ -105,7 +107,7 @@ func (g *githubTracker) Get(ctx context.Context, id string) (*Item, error) {
 	}
 	it := i.toItem()
 	var nums []string
-	for _, s := range i.SubIssues {
+	for _, s := range i.SubIssues.Nodes {
 		nums = append(nums, strconv.Itoa(s.Number))
 	}
 	if len(nums) == 0 {
@@ -145,6 +147,13 @@ func (g *githubTracker) SetState(ctx context.Context, id, state string) error {
 	switch state {
 	case GitHubActive:
 		_, err = g.gh(ctx, "issue", "edit", id, "--add-label", ActiveLabel)
+		if err != nil && strings.Contains(err.Error(), "not found") {
+			// A new repo has no such label. It is repo setup, not a tracker item.
+			if _, lerr := g.gh(ctx, "label", "create", ActiveLabel, "--description", "Gas Town is working on this"); lerr != nil {
+				return lerr
+			}
+			_, err = g.gh(ctx, "issue", "edit", id, "--add-label", ActiveLabel)
+		}
 	case GitHubClosed:
 		_, err = g.gh(ctx, "issue", "close", id) // no --comment, no --reason
 	default:
