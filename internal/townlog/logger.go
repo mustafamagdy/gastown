@@ -40,6 +40,9 @@ const (
 	EventEscalationSent EventType = "escalation_sent"
 	EventPatrolComplete EventType = "patrol_complete"
 
+	// EventRoute indicates a polecat agent runtime was chosen by quota routing.
+	EventRoute EventType = "route"
+
 	// Session death events (for crash investigation)
 	EventSessionDeath EventType = "session_death" // Session terminated (with reason)
 	EventMassDeath    EventType = "mass_death"    // Multiple sessions died in short window
@@ -199,6 +202,12 @@ func formatLogLine(e Event) string {
 			detail = fmt.Sprintf("patrol complete (%s)", e.Context)
 		} else {
 			detail = "patrol complete"
+		}
+	case EventRoute:
+		if e.Context != "" {
+			detail = fmt.Sprintf("runtime routed (%s)", e.Context)
+		} else {
+			detail = "runtime routed"
 		}
 	case EventSessionDeath:
 		if e.Context != "" {

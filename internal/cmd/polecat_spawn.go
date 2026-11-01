@@ -160,6 +160,12 @@ func spawnPolecatForSlingInner(rigName string, opts SlingSpawnOptions) (*Spawned
 		return nil, fmt.Errorf("cannot sling to %s rig %q\n%s %s", reason, rigName, undoCmd, rigName)
 	}
 
+	// Runtime routing: with no explicit agent, a project policy may pick the
+	// agent from live quota. The result flows through opts.Agent exactly like
+	// --agent, so the session and its runtime config resolve the same way.
+	// Never fails; a problem keeps the rig's normal agent.
+	opts.Agent = routePolecatAgent(townRoot, rigName, r.Path, opts.HookBead, opts.Agent)
+
 	// Multi-repo feature tasks start from the feature branch of this rig. This
 	// fails (no fall back to the default branch) when the bead is marked but
 	// the feature record or the rig's branch cannot be resolved.

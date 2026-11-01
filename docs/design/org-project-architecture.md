@@ -566,10 +566,67 @@ session-start context into `gt prime` is planned (phase 2b), not implemented yet
 
 ## Runtime routing by quota
 
-The deacon reads `quota-axi` before a polecat starts and picks the agent
-runtime by a per-project policy, for example
-`{"default": "auto", "hard": "claude", "avoid_below_pct": 20}`. Routine work
-goes to the runtime with the most runway; hard work keeps the strongest model.
+When a polecat starts with no explicit agent, a per-project policy can pick
+its agent runtime from live quota, so work moves off a runtime that is running
+out instead of stalling. The decision sits on the common polecat spawn path
+(`SpawnPolecatForSling`, which `gt sling`, batch sling, formula sling and the
+scheduler dispatch all use), not in the deacon. The chosen agent flows through
+the same `Agent` option as `--agent`, so the session and its runtime config
+resolve identically. A project without a policy behaves exactly as before.
+
+Policy, optional `runtime_routing` in `projects/<p>/project.json`:
+
+```json
+{
+  "runtime_routing": {
+    "default": "auto",
+    "hard": "claude",
+    "avoid_below_pct": 20,
+    "candidates": ["claude", "codex"],
+    "providers": {"claude-sonnet": "claude"}
+  }
+}
+```
+
+- `candidates`: gt agent names in preference order.
+- `providers`: optional map from gt agent name to quota-axi provider; an
+  agent not listed uses its own name.
+- `default`: `"auto"` or a fixed agent name. `hard`: agent for beads labelled
+  `hard` (optional).
+- Unknown fields, `"auto"` without candidates, and `avoid_below_pct` outside
+  0-100 are errors, reported when a decision is made and by the explain
+  command. An invalid policy never stops a spawn (see fail open).
+
+Decision order:
+
+1. An explicit `--agent` always wins; no routing.
+2. A rig outside a project, or a project without a policy: unchanged.
+3. A bead labelled `hard` and a policy with `hard`: the hard agent, even when
+   its quota is low (a warning is logged when it is below `avoid_below_pct`).
+4. A fixed `default`: that agent.
+5. `default: "auto"`: read quota, drop candidates under `avoid_below_pct`,
+   pick the one with the most quota left, ties by candidate order.
+
+Quota is read with `quota-axi --json --max-age 60s --no-credential-refresh`
+(15 second timeout) under the town's org environment, so only the org's
+accounts are read. This is a deliberate exception to the no-parsing rule: gt
+reads each provider's `quotaSemantics.effectiveAvailability` entry with scope
+`all_models` and field `effectivePercentRemaining`. A provider whose
+`state.status` is not `fresh`, that is `notSetUp`, or that has no known
+`all_models` figure is unknown and is not a candidate; gt never guesses.
+
+Fail open: if quota-axi is missing, times out, returns bad JSON, or no
+candidate survives, gt does not block the polecat. It uses the rig's normal
+agent (no override) and prints one warning that says why. A chosen agent that
+is not configured also falls back with a warning. Routing never stops work.
+
+Visibility: `gt project route <project> [--hard]` prints the policy, each
+candidate with its percent or why it is unknown, and the choice; it writes
+nothing. Every real decision is recorded in the town log (`[route]`, with
+agent and reason) and as a `runtime_route` audit event.
+
+Restarts of an existing polecat (`gt session start/restart`, `gt up`) do not
+route: they have no spawn decision and use the rig's agent, as they do today.
 
 ## Planning sync
 
@@ -602,6 +659,6 @@ a project (many repos) polecats are tabs, not nested worktree workspaces.
 | 3 | Project brain: brief, service map, read-only neighbours | done |
 | 4 | Multi-repo features: feature records, same-name branches, ordered dispatch, linked PRs and landing (direct and PR), GitHub and Azure DevOps PR providers | done |
 | 5 | Review gate: `gt review`, daemon watcher, feature land gate, refinery approval gate | done (tested against real lavish-axi through its API; the page panel is not yet tried in a real browser) |
-| 6 | Runtime routing by quota | planned |
+| 6 | Runtime routing by quota: `runtime_routing` policy, `gt project route`, decision at the polecat spawn path | done (tested against fixtures and the real quota-axi reader; not run with a live spawn) |
 | 7 | Planning sync with Azure Boards / GitHub | planned |
 | 8 | AXI-style output for `gt` | planned |
