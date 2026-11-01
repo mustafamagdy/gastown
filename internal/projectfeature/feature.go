@@ -74,6 +74,24 @@ type Task struct {
 	Title  string   `json:"title"`
 	After  []string `json:"after,omitempty"`          // task ids that must be closed first (effective: explicit + derived)
 	Manual []string `json:"after_explicit,omitempty"` // the subset given explicitly; kept when 'order' recomputes After
+	// Tracker links the task to a child item in the planning tracker.
+	Tracker *TrackerRef `json:"tracker_ref,omitempty"`
+}
+
+// TrackerRef links a feature or task to an item in the project's planning
+// tracker (Azure Boards work item, GitHub issue). Set only by
+// 'gt project tracker import'.
+type TrackerRef struct {
+	Kind string `json:"kind"`
+	ID   string `json:"id"`
+	URL  string `json:"url,omitempty"`
+	// ImportState is the item's state when it was imported (or, for a child,
+	// when it was added). gt writes back only from this state or from the
+	// active state, never over a state a human chose.
+	ImportState string `json:"import_state,omitempty"`
+	// Synced is the last desired state the reconciler handled: "", "active"
+	// or "done". A tick whose desired state equals it makes no tracker call.
+	Synced string `json:"synced,omitempty"`
 }
 
 // Record is a feature record.
@@ -89,6 +107,8 @@ type Record struct {
 	Tasks     []Task              `json:"tasks"`
 	// LandingOrder is the order rigs land in, fixed when landing starts.
 	LandingOrder []string `json:"landing_order,omitempty"`
+	// Tracker links the feature to its planning tracker item.
+	Tracker *TrackerRef `json:"tracker_ref,omitempty"`
 }
 
 var idRegexp = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)

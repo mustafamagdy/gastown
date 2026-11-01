@@ -51,6 +51,11 @@ type ProjectConfig struct {
 	// raw so a malformed policy never makes the whole project unloadable. Use
 	// ProjectRuntimeRouting to parse and validate it.
 	RuntimeRouting json.RawMessage `json:"runtime_routing,omitempty"`
+
+	// Tracker is the optional planning tracker (Azure Boards or GitHub
+	// Issues), kept raw like RuntimeRouting. Use ProjectTracker to parse and
+	// validate it.
+	Tracker json.RawMessage `json:"tracker,omitempty"`
 }
 
 // LandSettings are the resolved landing settings of a project.

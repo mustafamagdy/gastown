@@ -4,6 +4,7 @@ import (
 	"errors"
 	"io"
 	"log"
+	"strings"
 	"testing"
 	"time"
 
@@ -96,4 +97,52 @@ func TestAdvanceLandingsNeverStartsAnOpenFeature(t *testing.T) {
 		t.Fatalf("land started for %s; the daemon must only advance landing features", id)
 	default:
 	}
+}
+
+func TestDueTrackerSyncsOnlyImportedAndUnfinished(t *testing.T) {
+	town := featureTown(t) // plain features without a tracker ref
+	d := &Daemon{config: &Config{TownRoot: town}, logger: log.New(io.Discard, "", 0)}
+	if due := d.dueTrackerSyncs(time.Now()); len(due) != 0 {
+		t.Fatalf("features without tracker_ref are due: %v", due)
+	}
+	mk := func(id, synced string) {
+		rec := &projectfeature.Record{
+			ID: id, Project: "shop", Branch: "feat/" + id,
+			Rigs:    map[string]projectfeature.RigState{"api": {State: projectfeature.RigBranch}},
+			Tracker: &projectfeature.TrackerRef{Kind: "azure", ID: "12", Synced: synced},
+		}
+		if err := projectfeature.Create(town, rec); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mk("sh-8", "done") // everything written: not due
+	now := time.Now()
+	if due := d.dueTrackerSyncs(now); len(due) != 0 {
+		t.Fatalf("finished feature is due: %v", due)
+	}
+	mk("sh-9", "")
+	mk("sh-10", "active")
+	if due := d.dueTrackerSyncs(now); len(due) != 1 || due[0] != "shop" {
+		t.Fatalf("due = %v, want the project once", due)
+	}
+	if due := d.dueTrackerSyncs(now.Add(time.Minute)); len(due) != 0 {
+		t.Fatalf("throttled call returned %v", due)
+	}
+	if due := d.dueTrackerSyncs(now.Add(trackerSyncInterval + time.Second)); len(due) != 1 {
+		t.Fatalf("after interval due = %v", due)
+	}
+}
+
+func TestTrackerSyncFailureOnlyLogsAndDoesNotBlockLanding(t *testing.T) {
+	var logs strings.Builder
+	d := &Daemon{config: &Config{TownRoot: featureTown(t)}, logger: log.New(&logs, "", 0)}
+	d.trackerSyncFn = func(project string) ([]byte, error) { return []byte("tracker sync: x\nsecond"), errors.New("exit 1") }
+	d.syncTracker("shop")
+	if n := strings.Count(strings.TrimSpace(logs.String()), "\n"); n != 0 || !strings.Contains(logs.String(), "tracker sync shop failed") {
+		t.Errorf("want one log line, got %q", logs.String())
+	}
+	// A running sync does not keep the landing tick from starting.
+	d.trackerSyncing.Store(true)
+	d.featureLandFn = func(id string) ([]byte, error) { return nil, nil }
+	d.advanceLandings() // must return immediately
 }

@@ -10,6 +10,7 @@ import (
 
 	"github.com/steveyegge/gastown/internal/beads"
 	"github.com/steveyegge/gastown/internal/projectfeature"
+	"github.com/steveyegge/gastown/internal/tracker"
 )
 
 // featureRunInterval is the minimum time between runs for one feature.
@@ -163,6 +164,86 @@ func (d *Daemon) execFeatureLand(id string) ([]byte, error) {
 		gt = "gt"
 	}
 	cmd := exec.CommandContext(ctx, gt, "project", "feature", "land", id)
+	setSysProcAttr(cmd)
+	cmd.Dir = d.config.TownRoot
+	cmd.Env = append(beads.BuildMutationRoutingBDEnv(os.Environ(), filepath.Join(d.config.TownRoot, ".beads")), "GT_DAEMON=1")
+	return cmd.CombinedOutput()
+}
+
+// trackerSyncInterval is the minimum time between tracker syncs per project.
+const trackerSyncInterval = 5 * time.Minute
+
+// trackerSyncTimeout bounds one 'gt project tracker sync'.
+const trackerSyncTimeout = 5 * time.Minute
+
+// dueTrackerSyncs returns the projects with a feature imported from a planning
+// tracker that still has something to write back, and marks them as run now.
+// Reads only feature records, so it is cheap on every heartbeat, and a town
+// without imported features never starts a process.
+func (d *Daemon) dueTrackerSyncs(now time.Time) []string {
+	recs, errs := projectfeature.ListAll(d.config.TownRoot)
+	for _, err := range errs {
+		d.logger.Printf("project_feature: %v", err)
+	}
+	if d.trackerSyncLastRun == nil {
+		d.trackerSyncLastRun = make(map[string]time.Time)
+	}
+	seen := map[string]bool{}
+	var due []string
+	for _, rec := range recs {
+		if rec.Tracker == nil || !tracker.NeedsSync(rec) || seen[rec.Project] {
+			continue
+		}
+		seen[rec.Project] = true
+		if now.Sub(d.trackerSyncLastRun[rec.Project]) < trackerSyncInterval {
+			continue
+		}
+		d.trackerSyncLastRun[rec.Project] = now
+		due = append(due, rec.Project)
+	}
+	return due
+}
+
+// advanceTrackerSync runs 'gt project tracker sync' for due projects in the
+// background. A failure logs one line and is retried at the next due tick.
+func (d *Daemon) advanceTrackerSync() {
+	due := d.dueTrackerSyncs(time.Now())
+	if len(due) == 0 {
+		return
+	}
+	if !d.trackerSyncing.CompareAndSwap(false, true) {
+		return
+	}
+	go func() {
+		defer d.trackerSyncing.Store(false)
+		for _, project := range due {
+			d.syncTracker(project)
+		}
+	}()
+}
+
+func (d *Daemon) syncTracker(project string) {
+	run := d.trackerSyncFn
+	if run == nil {
+		run = d.execTrackerSync
+	}
+	out, err := run(project)
+	one := strings.Join(strings.Fields(string(out)), " ")
+	if err != nil {
+		d.logger.Printf("project_feature: tracker sync %s failed: %v (output: %s)", project, err, one)
+	} else if one != "" {
+		d.logger.Printf("project_feature: tracker sync %s: %s", project, one)
+	}
+}
+
+func (d *Daemon) execTrackerSync(project string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), trackerSyncTimeout)
+	defer cancel()
+	gt := d.gtPath
+	if gt == "" {
+		gt = "gt"
+	}
+	cmd := exec.CommandContext(ctx, gt, "project", "tracker", "sync", project)
 	setSysProcAttr(cmd)
 	cmd.Dir = d.config.TownRoot
 	cmd.Env = append(beads.BuildMutationRoutingBDEnv(os.Environ(), filepath.Join(d.config.TownRoot, ".beads")), "GT_DAEMON=1")

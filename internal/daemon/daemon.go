@@ -112,6 +112,12 @@ type Daemon struct {
 	featureLandLastRun map[string]time.Time
 	featureLanding     atomic.Bool
 	featureLandFn      func(id string) ([]byte, error)
+	// Planning sync (write-back to the project tracker), per project, same
+	// pattern. Runs beside the landing tick on its own guard so a slow or
+	// failing tracker never delays landing.
+	trackerSyncLastRun map[string]time.Time
+	trackerSyncing     atomic.Bool
+	trackerSyncFn      func(project string) ([]byte, error)
 
 	// reviewEngine keeps one lavish poll per open visual review. Created on
 	// the first heartbeat that finds an open review.
@@ -1068,6 +1074,9 @@ func (d *Daemon) heartbeat(state *State) {
 	// Advance landings a human started. No pressure gate: landing spawns no
 	// polecats, it only talks to git and the PR provider.
 	d.advanceLandings()
+	// Write status of imported features back to the planning tracker. Never
+	// blocks landing or polecats: own goroutine, errors only logged.
+	d.advanceTrackerSync()
 
 	// 18. Keep the polls of open visual reviews running (no-op without any).
 	d.watchReviews()
