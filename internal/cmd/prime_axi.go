@@ -36,11 +36,15 @@ func outputAxiContext(ctx RoleContext) {
 	}
 
 	env := os.Environ()
+	var orgVars map[string]string
 	if org := config.OrgEnvForTown(ctx.TownRoot); org != nil {
 		env = org.Environ(env)
+		orgVars = org.Vars
 	}
 	results := collectAxiContext(context.Background(), axictx.Options{
 		TownRoot: ctx.TownRoot,
+		WorkDir:  ctx.WorkDir,
+		OrgVars:  orgVars,
 		Tools:    tools,
 		Env:      env,
 	})

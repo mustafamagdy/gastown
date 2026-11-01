@@ -13,6 +13,11 @@
 //     (lavish-axi with no arguments prints its usage guide, quota-axi asks the
 //     vendor), so they are not in the table.
 //
+// A view can name the machine's account, not the org's. az-axi prints the az
+// login's subscription, tenant and user, and the default login may belong to
+// another org, so it only runs when the town's org env sets AZURE_CONFIG_DIR.
+// gh-axi counts the repo it runs in, so it runs in the agent's work directory.
+//
 // Tool output is data. It is capped, stripped of control characters, and never
 // interpreted. Collect never returns an error: a failing tool yields a result
 // with Err set and no text.
@@ -21,6 +26,7 @@ package axictx
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"os"
@@ -47,11 +53,21 @@ const (
 	truncatedNote = "(truncated)"
 )
 
-// sessionViews maps a tool name to the arguments of its session-start context
-// command. Only verified tools belong here.
-var sessionViews = map[string][]string{
-	"gh-axi": nil,
-	"az-axi": nil,
+// view is a tool's session-start context command.
+type view struct {
+	args []string
+	// orgVar must be set by the town's org env, or the tool would describe an
+	// account that is not the org's.
+	orgVar string
+	// perRepo runs the tool in the agent's work directory.
+	perRepo bool
+}
+
+// sessionViews maps a tool name to its session-start context command. Only
+// verified tools belong here.
+var sessionViews = map[string]view{
+	"gh-axi": {perRepo: true},
+	"az-axi": {orgVar: "AZURE_CONFIG_DIR"},
 }
 
 // HasSessionView reports whether tool has a known session-start command.
@@ -66,6 +82,10 @@ type Runner func(ctx context.Context, dir string, env []string, bin string, args
 // Options configure Collect. Zero values take the defaults.
 type Options struct {
 	TownRoot string
+	// WorkDir is the agent's directory, for per-repo views. Empty means TownRoot.
+	WorkDir string
+	// OrgVars are the variables set by the town's org env.
+	OrgVars map[string]string
 	// Tools are axi_tools entries ("name" or "name@version"), in print order.
 	Tools []string
 	// Env is the full environment for the tools (org env already applied).
@@ -130,6 +150,9 @@ func Collect(ctx context.Context, opts Options) []Result {
 		if !HasSessionView(name) || seen[name] {
 			continue
 		}
+		if v := sessionViews[name].orgVar; v != "" && opts.OrgVars[v] == "" {
+			continue
+		}
 		seen[name] = true
 		tools = append(tools, name)
 	}
@@ -151,7 +174,14 @@ func Collect(ctx context.Context, opts Options) []Result {
 }
 
 func collectOne(ctx context.Context, opts Options, tool string) Result {
-	cachePath := filepath.Join(CacheDir(opts.TownRoot), tool+".txt")
+	dir := opts.TownRoot
+	cacheName := tool + ".txt"
+	if sessionViews[tool].perRepo && opts.WorkDir != "" && opts.WorkDir != opts.TownRoot {
+		dir = opts.WorkDir
+		sum := sha256.Sum256([]byte(dir))
+		cacheName = fmt.Sprintf("%s-%x.txt", tool, sum[:6])
+	}
+	cachePath := filepath.Join(CacheDir(opts.TownRoot), cacheName)
 	if text, ok := readFresh(cachePath, opts.Now(), opts.TTL); ok {
 		return Result{Tool: tool, Text: text}
 	}
@@ -162,7 +192,7 @@ func collectOne(ctx context.Context, opts Options, tool string) Result {
 	}
 	cctx, cancel := context.WithTimeout(ctx, opts.Timeout)
 	defer cancel()
-	out, err := opts.Run(cctx, opts.TownRoot, opts.Env, bin, sessionViews[tool]...)
+	out, err := opts.Run(cctx, dir, opts.Env, bin, sessionViews[tool].args...)
 	if cctx.Err() != nil {
 		return Result{Tool: tool, Err: fmt.Errorf("timed out after %s", opts.Timeout)}
 	}

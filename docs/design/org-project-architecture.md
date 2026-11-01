@@ -567,10 +567,15 @@ runtime, following the town's `axi_tools` list, so no per-tool hook is needed.
   service map sections. The compaction and resume path of `gt prime --hook`
   stays light and prints none. With `--dry-run` nothing runs; `--explain` says
   what would.
-- How: one block `## AXI context: <tool>` per tool in `axi_tools` order, run in
-  the town root with the org environment, in parallel, 5 seconds each. A town
-  with no `axi_tools` (or none with a session view) runs and prints nothing.
-- Cache: `<town>/.runtime/axi-context/<tool>.txt` (directory 0700, file 0600,
+- How: one block `## AXI context: <tool>` per tool in `axi_tools` order, run
+  with the org environment, in parallel, 5 seconds each. `gh-axi` runs in the
+  agent's work directory, because its view counts that repo. A town with no
+  `axi_tools` (or none with a session view) runs and prints nothing.
+- Org separation: `az-axi` prints the az login's subscription, tenant and user,
+  and the machine's default login may belong to another org. So it runs only
+  when the town's org environment sets `AZURE_CONFIG_DIR`; otherwise it is
+  skipped silently and nothing about that account reaches an agent or the cache.
+- Cache: `<town>/.runtime/axi-context/<tool>[-<dir hash>].txt` (directory 0700, file 0600,
   written atomically), reused for 10 minutes, so most primes run no tool. A
   failure is not cached.
 - Failure: `gt prime` never fails because of this. A tool that is missing,

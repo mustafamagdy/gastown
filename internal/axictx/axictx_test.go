@@ -24,6 +24,7 @@ func fakeTool(t *testing.T, dir, tool, body string) {
 func opts(town, bin string, tools ...string) Options {
 	return Options{
 		TownRoot: town,
+		OrgVars:  map[string]string{"AZURE_CONFIG_DIR": "/org/az"},
 		Tools:    tools,
 		Env:      []string{"PATH=" + bin + ":/usr/bin:/bin", "ORG_VAR=acme"},
 		Timeout:  2 * time.Second,
@@ -233,5 +234,32 @@ func TestCollect_Parallel(t *testing.T) {
 	Collect(context.Background(), opts(town, bin, "gh-axi", "az-axi"))
 	if d := time.Since(start); d > 1100*time.Millisecond {
 		t.Errorf("took %v, tools did not run in parallel", d)
+	}
+}
+
+func TestAzureViewNeedsOrgAccount(t *testing.T) {
+	town, bin := t.TempDir(), t.TempDir()
+	fakeTool(t, bin, "az-axi", `echo "subscription: another org"`)
+	o := opts(town, bin, "az-axi")
+	o.OrgVars = nil
+	if res := Collect(context.Background(), o); res != nil {
+		t.Fatalf("az-axi ran with no org account: %+v", res)
+	}
+	if _, err := os.Stat(CacheDir(town)); err == nil {
+		t.Fatal("cache written for a skipped tool")
+	}
+}
+
+func TestPerRepoViewRunsInWorkDir(t *testing.T) {
+	town, bin := t.TempDir(), t.TempDir()
+	repoA, repoB := t.TempDir(), t.TempDir()
+	fakeTool(t, bin, "gh-axi", `pwd`)
+	for _, repo := range []string{repoA, repoB} {
+		o := opts(town, bin, "gh-axi")
+		o.WorkDir = repo
+		res := Collect(context.Background(), o)
+		if len(res) != 1 || !strings.Contains(res[0].Text, filepath.Base(repo)) {
+			t.Fatalf("repo %s: got %+v", repo, res)
+		}
 	}
 }
