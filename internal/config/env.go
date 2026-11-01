@@ -112,6 +112,14 @@ func AgentEnv(cfg AgentEnvConfig) map[string]string {
 		}
 	}
 
+	// Compact output for agent sessions when the town asks for it.
+	if cfg.TownRoot != "" {
+		if s, err := LoadOrCreateTownSettings(TownSettingsPath(cfg.TownRoot)); err == nil &&
+			strings.EqualFold(strings.TrimSpace(s.AgentOutput), "axi") {
+			env["GT_OUTPUT"] = "axi"
+		}
+	}
+
 	// Set role-specific variables
 	// GT_ROLE is set in compound format (e.g., "beads/crew/jane") so that
 	// beads can parse it without knowing about Gas Town role types.

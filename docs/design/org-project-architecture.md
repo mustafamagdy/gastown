@@ -599,6 +599,29 @@ the subscription and user); it is the same text its hook would give the agent.
   which catches problems like az-axi's `SubscriptionNotFound` for a stale
   Azure subscription.
 
+### Compact output of `gt` (AXI style)
+
+Agents read `gt` output all the time, so `gt` can print what the AXI tools
+print: `key: value` lines, TOON-style arrays (`name[N]{a,b}:` with one
+indented row per item), no colour, no banners, a row cap with a count line
+(`showing: 20 of 57`), and a `help[N]:` block of one to three next-step
+commands chosen from the state. The writer is `internal/axiout`.
+
+- Opt-in, never the default: `--axi` on a command, or `GT_OUTPUT=axi` in the
+  environment. Without either, output is today's, byte for byte. `--json`
+  always wins over both, so formulas and tests that parse JSON are unaffected.
+- Town setting `agent_output: "axi"` in `settings/config.json` makes
+  `config.AgentEnv` set `GT_OUTPUT=axi` in every agent session of the town.
+  Humans in a shell are not affected.
+- Covered, because agents run them most: `gt status`, `gt hook` (and
+  `gt hook status`, `gt mol status`), `gt mq list`, `gt polecat list`,
+  `gt project feature status`, `gt review list`. Each renderer works from the
+  data structure its command already builds, never from rendered text.
+- An empty result is a statement (`polecats: 0`), not silence. Errors still go
+  to stderr with the usual exit codes.
+- Like the external AXI tools, the format is free to change and `gt` never
+  parses it; programs use `--json`.
+
 ## Runtime routing by quota
 
 When a polecat starts with no explicit agent, a per-project policy can pick
@@ -697,4 +720,4 @@ a project (many repos) polecats are tabs, not nested worktree workspaces.
 | 5 | Review gate: `gt review`, daemon watcher, feature land gate, refinery approval gate | done (tested against real lavish-axi through its API; the page panel is not yet tried in a real browser) |
 | 6 | Runtime routing by quota: `runtime_routing` policy, `gt project route`, decision at the polecat spawn path | done (tested against fixtures and the real quota-axi reader; not run with a live spawn) |
 | 7 | Planning sync with Azure Boards / GitHub | planned |
-| 8 | AXI-style output for `gt` | planned |
+| 8 | AXI-style output for `gt`: `--axi` / `GT_OUTPUT=axi`, town `agent_output`, six read commands | done (tested on exact text and against the `~/work/demo/gt` town; not run in a live agent session) |

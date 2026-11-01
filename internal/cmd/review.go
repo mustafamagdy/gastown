@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/steveyegge/gastown/internal/axiout"
 	"github.com/steveyegge/gastown/internal/mail"
 	"github.com/steveyegge/gastown/internal/projectfeature"
 	"github.com/steveyegge/gastown/internal/review"
@@ -25,6 +26,7 @@ var (
 	reviewBead     string
 	reviewKind     string
 	reviewListJSON bool
+	reviewListAxi  bool
 	reviewShowJSON bool
 )
 
@@ -106,6 +108,7 @@ func init() {
 	_ = reviewRequestCmd.MarkFlagRequired("bead")
 	_ = reviewRequestCmd.MarkFlagRequired("kind")
 	reviewListCmd.Flags().BoolVar(&reviewListJSON, "json", false, "Output as JSON")
+	reviewListCmd.Flags().BoolVar(&reviewListAxi, "axi", false, "Compact AXI-style output for agents (also GT_OUTPUT=axi)")
 	reviewShowCmd.Flags().BoolVar(&reviewShowJSON, "json", false, "Output as JSON")
 	reviewCmd.AddCommand(reviewRequestCmd, reviewListCmd, reviewShowCmd, reviewCancelCmd, reviewReopenCmd, reviewWatchCmd)
 	rootCmd.AddCommand(reviewCmd)
@@ -281,6 +284,10 @@ func runReviewList(cmd *cobra.Command, args []string) error {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
 		return enc.Encode(recs)
+	}
+	if axiout.Wanted(reviewListAxi, reviewListJSON) {
+		fmt.Print(renderReviewListAxi(recs, time.Now()))
+		return nil
 	}
 	if len(recs) == 0 {
 		fmt.Println("No reviews.")

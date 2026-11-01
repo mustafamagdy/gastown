@@ -100,6 +100,12 @@ type TownSettings struct {
 	// checks each one is installed, at the pinned version, and runs.
 	AxiTools []string `json:"axi_tools,omitempty"`
 
+	// AgentOutput selects the output style of gt for agent sessions. "axi"
+	// makes AgentEnv set GT_OUTPUT=axi, so the covered read commands (gt
+	// status, hook, mq list, polecat list, project feature status, review
+	// list) print compact AXI text. Empty (default) keeps today's output.
+	AgentOutput string `json:"agent_output,omitempty"`
+
 	// ReviewPort is the port of the town's lavish review server. Default:
 	// the Dolt port plus 1080 (3307 gives 4387, 3308 gives 4388).
 	ReviewPort int `json:"review_port,omitempty"`

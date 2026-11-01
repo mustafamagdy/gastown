@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
+	"github.com/steveyegge/gastown/internal/axiout"
 	"github.com/steveyegge/gastown/internal/beads"
 	"github.com/steveyegge/gastown/internal/cli"
 	"github.com/steveyegge/gastown/internal/config"
@@ -1473,7 +1474,10 @@ func collectHandoffState() string {
 	}
 
 	// Get hooked work
-	hookOutput, err := exec.Command("gt", "hook").Output()
+	hookCmd := exec.Command("gt", "hook")
+	// This text is matched below, so it must not be the compact agent output.
+	hookCmd.Env = append(os.Environ(), axiout.EnvVar+"=")
+	hookOutput, err := hookCmd.Output()
 	if err == nil {
 		hookStr := strings.TrimSpace(string(hookOutput))
 		if hookStr != "" && !strings.Contains(hookStr, "Nothing on hook") {
