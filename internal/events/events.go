@@ -34,17 +34,18 @@ const (
 
 // Common event types for gt commands.
 const (
-	TypeSling   = "sling"
-	TypeHook    = "hook"
-	TypeUnhook  = "unhook"
-	TypeHandoff = "handoff"
-	TypeDone    = "done"
-	TypeMail    = "mail"
-	TypeSpawn   = "spawn"
-	TypeKill    = "kill"
-	TypeNudge   = "nudge"
-	TypeBoot    = "boot"
-	TypeHalt    = "halt"
+	TypeSling        = "sling"
+	TypeHook         = "hook"
+	TypeUnhook       = "unhook"
+	TypeHandoff      = "handoff"
+	TypeDone         = "done"
+	TypeMail         = "mail"
+	TypeSpawn        = "spawn"
+	TypeRuntimeRoute = "runtime_route" // Polecat agent chosen by quota routing
+	TypeKill         = "kill"
+	TypeNudge        = "nudge"
+	TypeBoot         = "boot"
+	TypeHalt         = "halt"
 
 	// Session events (for seance discovery)
 	TypeSessionStart = "session_start"
@@ -55,9 +56,9 @@ const (
 	TypeMassDeath    = "mass_death"    // Multiple sessions died in short window
 
 	// Witness patrol events
-	TypePatrolStarted   = "patrol_started"
-	TypePolecatChecked  = "polecat_checked"
-	TypePolecatNudged   = "polecat_nudged"
+	TypePatrolStarted    = "patrol_started"
+	TypePolecatChecked   = "polecat_checked"
+	TypePolecatNudged    = "polecat_nudged"
 	TypeEscalationSent   = "escalation_sent"
 	TypeEscalationAcked  = "escalation_acked"
 	TypeEscalationClosed = "escalation_closed"

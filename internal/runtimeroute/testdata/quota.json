@@ -1,0 +1,60 @@
+{
+  "generatedAt": "2026-11-01T03:30:49.286Z",
+  "schemaVersion": 5,
+  "providers": [
+    {
+      "provider": "claude",
+      "state": {
+        "status": "fresh"
+      },
+      "quotaSemantics": {
+        "status": "known",
+        "effectiveAvailability": [
+          {
+            "scope": "all_models",
+            "status": "known",
+            "effectivePercentRemaining": 26
+          },
+          {
+            "scope": "model:fable",
+            "status": "known",
+            "effectivePercentRemaining": 26
+          }
+        ]
+      }
+    },
+    {
+      "provider": "codex",
+      "state": {
+        "status": "auth_required",
+        "error": "Codex sign-in required"
+      },
+      "quotaSemantics": {
+        "status": "unknown",
+        "effectiveAvailability": []
+      }
+    },
+    {
+      "provider": "cursor",
+      "state": {
+        "status": "auth_required",
+        "error": "Cursor sign-in required"
+      },
+      "quotaSemantics": {
+        "status": "unknown",
+        "effectiveAvailability": []
+      },
+      "notSetUp": true
+    },
+    {
+      "provider": "copilot",
+      "state": {
+        "status": "fresh"
+      },
+      "quotaSemantics": {
+        "status": "unknown",
+        "effectiveAvailability": []
+      }
+    }
+  ]
+}

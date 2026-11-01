@@ -46,6 +46,11 @@ type ProjectConfig struct {
 	// "approval" review (gt review) on the feature or one of its tasks.
 	// Default false.
 	RequireVisualReview bool `json:"require_visual_review,omitempty"`
+
+	// RuntimeRouting is the optional quota-based agent routing policy, kept
+	// raw so a malformed policy never makes the whole project unloadable. Use
+	// ProjectRuntimeRouting to parse and validate it.
+	RuntimeRouting json.RawMessage `json:"runtime_routing,omitempty"`
 }
 
 // LandSettings are the resolved landing settings of a project.
