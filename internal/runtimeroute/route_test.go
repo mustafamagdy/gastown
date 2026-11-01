@@ -289,3 +289,26 @@ func TestExecReader(t *testing.T) {
 		t.Error("timeout must error")
 	}
 }
+
+func TestDecideNoQuotaLeftIsNeverChosen(t *testing.T) {
+	r := &fakeReader{q: map[string]ProviderQuota{"claude": known(0), "codex": known(0)}}
+	d := Decide(context.Background(), Input{Policy: auto(0, "claude", "codex")}, r)
+	if d.Agent != "" || d.Warning == "" {
+		t.Fatalf("got agent %q warning %q, want fail open", d.Agent, d.Warning)
+	}
+}
+
+func TestDecideHardAgentUnknownQuotaWarns(t *testing.T) {
+	for name, q := range map[string]map[string]ProviderQuota{
+		"unknown":  {"claude": {Why: "state auth_required"}},
+		"missing":  {},
+		"depleted": {"claude": known(0)},
+	} {
+		t.Run(name, func(t *testing.T) {
+			d := Decide(context.Background(), Input{Policy: auto(0, "claude"), Hard: true}, &fakeReader{q: q})
+			if d.Agent != "claude" || d.Warning == "" {
+				t.Fatalf("got agent %q warning %q, want claude with a warning", d.Agent, d.Warning)
+			}
+		})
+	}
+}

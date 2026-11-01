@@ -77,8 +77,13 @@ func Decide(ctx context.Context, in Input, reader QuotaReader) Decision {
 		d := Decision{Agent: pol.Hard, Routed: true, Reason: "hard bead"}
 		if reader != nil {
 			if q, err := reader.Read(ctx); err == nil {
-				pq := q[pol.Provider(pol.Hard)]
-				if pq.Known && pq.Percent < pol.AvoidBelowPct {
+				pq, ok := q[pol.Provider(pol.Hard)]
+				switch {
+				case !ok:
+					d.Warning = fmt.Sprintf("hard agent %s is not reported by quota-axi; using it anyway", pol.Hard)
+				case !pq.Known:
+					d.Warning = fmt.Sprintf("hard agent %s has unknown quota (%s); using it anyway", pol.Hard, pq.Why)
+				case pq.Percent <= 0 || pq.Percent < pol.AvoidBelowPct:
 					d.Warning = fmt.Sprintf("hard agent %s has %s%% quota left, below avoid_below_pct %s%%; using it anyway",
 						pol.Hard, pct(pq.Percent), pct(pol.AvoidBelowPct))
 				}
@@ -111,6 +116,9 @@ func Decide(ctx context.Context, in Input, reader QuotaReader) Decision {
 		case !pq.Known:
 			c.Quota = pq
 			c.Dropped = "quota unknown"
+		case pq.Percent <= 0:
+			c.Quota = pq
+			c.Dropped = "no quota left"
 		case pq.Percent < pol.AvoidBelowPct:
 			c.Quota = pq
 			c.Dropped = fmt.Sprintf("below avoid_below_pct %s%%", pct(pol.AvoidBelowPct))

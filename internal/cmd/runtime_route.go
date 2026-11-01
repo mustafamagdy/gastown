@@ -124,7 +124,10 @@ func routePolecatAgent(townRoot, rigName, rigPath, hookBead, explicit string) st
 
 	hard := false
 	if hookBead != "" {
-		if iss, err := beads.New(rigPath).Show(hookBead); err == nil && iss != nil {
+		iss, err := beads.New(rigPath).Show(hookBead)
+		if err != nil {
+			style.PrintWarning("runtime routing could not read %s (%v); treating it as routine work", hookBead, err)
+		} else if iss != nil {
 			hard = beads.HasLabel(iss, runtimeroute.HardLabel)
 		}
 	}
