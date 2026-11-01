@@ -408,48 +408,72 @@ func runProjectFeatureCreate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("not in a Gas Town workspace: %w", err)
 	}
 	project, title := args[0], strings.TrimSpace(args[1])
-	if title == "" {
-		return fmt.Errorf("feature title is required")
-	}
-	if _, err := config.LoadProjectConfig(townRoot, project); err != nil {
-		return fmt.Errorf("project %q: %w", project, err)
-	}
-	rigs, err := parseFeatureRigs(featureCreateRigs)
+	rec, results, err := createFeature(townRoot, project, title, "", featureCreateRigs, featureCreateBranch, nil)
 	if err != nil {
 		return err
+	}
+	printFeatureCreated(rec, results)
+	return nil
+}
+
+func printFeatureCreated(rec *projectfeature.Record, results []projectfeature.BranchResult) {
+	fmt.Printf("%s Created feature %s in project %s\n", style.Success.Render("✓"), style.Bold.Render(rec.ID), rec.Project)
+	fmt.Printf("  Branch: %s\n", rec.Branch)
+	for _, r := range results {
+		fmt.Printf("  %-16s from %s @ %s\n", r.Rig, r.Base, short(r.BaseCommit))
+	}
+	fmt.Printf("  Add tasks with: gt project feature task %s <rig> \"<title>\"\n", rec.ID)
+}
+
+// createFeature is the code behind 'gt project feature create' and
+// 'gt project tracker import': the epic in the project beads, the same-named
+// branch in every rig and the feature record. description "" uses the default
+// epic description; ref, when set, is stored on the record as tracker_ref.
+func createFeature(townRoot, project, title, description string, rigInput []string, branch string, ref *projectfeature.TrackerRef) (*projectfeature.Record, []projectfeature.BranchResult, error) {
+	if title == "" {
+		return nil, nil, fmt.Errorf("feature title is required")
+	}
+	if _, err := config.LoadProjectConfig(townRoot, project); err != nil {
+		return nil, nil, fmt.Errorf("project %q: %w", project, err)
+	}
+	rigs, err := parseFeatureRigs(rigInput)
+	if err != nil {
+		return nil, nil, err
 	}
 	rigsConfig, _, err := loadProjectRigs(townRoot)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 	if err := validateFeatureRigs(rigsConfig, project, rigs); err != nil {
-		return err
+		return nil, nil, err
 	}
 	repos := make([]projectfeature.RigRepo, 0, len(rigs))
 	for _, r := range rigs {
 		repo, err := featureRigRepo(townRoot, r)
 		if err != nil {
-			return err
+			return nil, nil, err
 		}
 		repos = append(repos, repo)
 	}
 
 	// With an explicit branch, check all rigs before creating anything.
-	branch := featureCreateBranch
 	if branch != "" {
 		if err := validateFeatureBranch(branch); err != nil {
-			return err
+			return nil, nil, err
 		}
 		if err := projectfeature.CheckBranchFree(repos, branch); err != nil {
-			return err
+			return nil, nil, err
 		}
 	}
 
 	projectDir := config.ProjectDir(townRoot, project)
-	desc := fmt.Sprintf("Multi-repo feature across rigs: %s.\nTracked by gt project feature; record: projects/%s/features/.", strings.Join(rigs, ", "), project)
+	desc := description
+	if desc == "" {
+		desc = fmt.Sprintf("Multi-repo feature across rigs: %s.\nTracked by gt project feature; record: projects/%s/features/.", strings.Join(rigs, ", "), project)
+	}
 	epicID, err := createFeatureBead(projectDir, title, "epic", desc)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 	abort := func(reason string) {
 		closeFeatureBead(projectDir, epicID, "Feature creation failed: "+reason)
@@ -460,24 +484,25 @@ func runProjectFeatureCreate(cmd *cobra.Command, args []string) error {
 		branch = featureBranchName(epicID, title)
 		if err := validateFeatureBranch(branch); err != nil {
 			abort(err.Error())
-			return err
+			return nil, nil, err
 		}
 		if err := projectfeature.CheckBranchFree(repos, branch); err != nil {
 			abort(err.Error())
-			return err
+			return nil, nil, err
 		}
 	}
 
 	results, err := projectfeature.CreateBranches(repos, branch)
 	if err != nil {
 		abort(err.Error())
-		return fmt.Errorf("creating branches: %w", err)
+		return nil, nil, fmt.Errorf("creating branches: %w", err)
 	}
 
 	rec := &projectfeature.Record{
 		ID: epicID, Project: project, Title: title, Branch: branch,
 		State: projectfeature.StateOpen, CreatedAt: time.Now().UTC(),
 		Rigs: map[string]projectfeature.RigState{}, Tasks: []projectfeature.Task{},
+		Tracker: ref,
 	}
 	for _, r := range results {
 		rec.Rigs[r.Rig] = projectfeature.RigState{Base: r.Base, BaseCommit: r.BaseCommit, State: projectfeature.RigBranch}
@@ -487,16 +512,9 @@ func runProjectFeatureCreate(cmd *cobra.Command, args []string) error {
 			fmt.Fprintf(os.Stderr, "  Warning: could not delete branches after failed save: %v\n", delErr)
 		}
 		abort(err.Error())
-		return fmt.Errorf("saving feature record: %w", err)
+		return nil, nil, fmt.Errorf("saving feature record: %w", err)
 	}
-
-	fmt.Printf("%s Created feature %s in project %s\n", style.Success.Render("✓"), style.Bold.Render(epicID), project)
-	fmt.Printf("  Branch: %s\n", branch)
-	for _, r := range results {
-		fmt.Printf("  %-16s from %s @ %s\n", r.Rig, r.Base, short(r.BaseCommit))
-	}
-	fmt.Printf("  Add tasks with: gt project feature task %s <rig> \"<title>\"\n", epicID)
-	return nil
+	return rec, results, nil
 }
 
 func short(sha string) string {
@@ -568,34 +586,45 @@ func runProjectFeatureTask(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	rigName, title := args[1], strings.TrimSpace(args[2])
-	if title == "" {
-		return fmt.Errorf("task title is required")
-	}
-	if rec.State != projectfeature.StateOpen {
-		return fmt.Errorf("feature %s is %s; tasks can only be added while it is open", rec.ID, rec.State)
-	}
-	if _, ok := rec.Rigs[rigName]; !ok {
-		return fmt.Errorf("rig %s is not part of feature %s (rigs: %s); add it with 'gt project feature add-rig %s %s'",
-			rigName, rec.ID, strings.Join(featureRigNames(rec), ", "), rec.ID, rigName)
-	}
-	for _, a := range featureTaskAfter {
-		if rec.Task(a) == nil {
-			return fmt.Errorf("--after %s: no such task in feature %s", a, rec.ID)
-		}
-	}
-	desc := projectfeature.AddMarker(featureTaskDesc, rec.ID)
-	id, err := createFeatureBead(filepath.Join(townRoot, rigName), title, "task", desc)
+	id, err := addFeatureTask(townRoot, rec, rigName, title, featureTaskDesc, featureTaskAfter, nil)
 	if err != nil {
 		return err
 	}
-	_, err = projectfeature.Update(townRoot, rec.Project, rec.ID, func(r *projectfeature.Record) error {
-		return r.AddTask(projectfeature.Task{ID: id, Rig: rigName, Title: title, After: featureTaskAfter})
-	})
-	if err != nil {
-		return fmt.Errorf("bead %s was created but could not be recorded in feature %s: %w", id, rec.ID, err)
-	}
 	fmt.Printf("%s Added task %s in rig %s to feature %s\n", style.Success.Render("✓"), style.Bold.Render(id), rigName, rec.ID)
 	return nil
+}
+
+// addFeatureTask is the code behind 'gt project feature task' and
+// 'gt project tracker import': the bead in the rig's database plus the task
+// entry in the record. ref, when set, is stored as the task's tracker_ref.
+func addFeatureTask(townRoot string, rec *projectfeature.Record, rigName, title, description string, after []string, ref *projectfeature.TrackerRef) (string, error) {
+	if title == "" {
+		return "", fmt.Errorf("task title is required")
+	}
+	if rec.State != projectfeature.StateOpen {
+		return "", fmt.Errorf("feature %s is %s; tasks can only be added while it is open", rec.ID, rec.State)
+	}
+	if _, ok := rec.Rigs[rigName]; !ok {
+		return "", fmt.Errorf("rig %s is not part of feature %s (rigs: %s); add it with 'gt project feature add-rig %s %s'",
+			rigName, rec.ID, strings.Join(featureRigNames(rec), ", "), rec.ID, rigName)
+	}
+	for _, a := range after {
+		if rec.Task(a) == nil {
+			return "", fmt.Errorf("--after %s: no such task in feature %s", a, rec.ID)
+		}
+	}
+	desc := projectfeature.AddMarker(description, rec.ID)
+	id, err := createFeatureBead(filepath.Join(townRoot, rigName), title, "task", desc)
+	if err != nil {
+		return "", err
+	}
+	_, err = projectfeature.Update(townRoot, rec.Project, rec.ID, func(r *projectfeature.Record) error {
+		return r.AddTask(projectfeature.Task{ID: id, Rig: rigName, Title: title, After: after, Tracker: ref})
+	})
+	if err != nil {
+		return "", fmt.Errorf("bead %s was created but could not be recorded in feature %s: %w", id, rec.ID, err)
+	}
+	return id, nil
 }
 
 func featureRigNames(rec *projectfeature.Record) []string {

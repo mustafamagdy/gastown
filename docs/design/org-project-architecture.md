@@ -689,9 +689,79 @@ route: they have no spawn decision and use the rig's agent, as they do today.
 ## Planning sync
 
 Features and stories are planned in the org's tracker (Azure Boards or GitHub
-Issues). gt imports a ready feature as a project epic with child beads, and
-writes status back (active when a polecat starts, resolved when the PR merges).
-Beads is the only working tracker inside gt.
+Issues). gt imports a ready item as a project feature with child beads, and
+writes status back (active when work starts, done when the feature lands).
+Beads is the only working tracker inside gt. The code is in `internal/tracker`.
+
+**Config.** An optional `tracker` object in `projects/<p>/project.json`, parsed
+strictly (unknown fields are errors, fields of the other kind are errors):
+
+```json
+{"kind":"azure","org":"geeksclub","project":"gt-pr-test","ready_tag":"gt-ready",
+ "active_state":"Active","done_state":"Resolved"}
+{"kind":"github","repo":"owner/name","ready_label":"gt-ready"}
+```
+
+Azure requires `active_state` and `done_state` because process templates
+differ (Agile "Resolved", Scrum "Done", Basic "Doing"/"Done"). `ready_tag` and
+`ready_label` default to `gt-ready`. Without a tracker nothing changes anywhere.
+
+**Tools.** `az boards query --wiql`, `az boards work-item show` (with
+relations) and `az boards work-item update --state`, always with
+`--organization` and `--output json`; `gh issue list/view --json`,
+`gh issue edit --add-label gt-active` and `gh issue close --repo`. Azure
+authentication is az's per-org store (`gt azure login`); gt stores no
+credentials. The tools run behind a runner seam, so tests use a fake.
+
+**Commands.**
+
+- `gt project tracker list <project>` lists ready items and marks those already
+  imported.
+- `gt project tracker import <project> <item-id> --rigs a,b [--dry-run]` creates
+  a feature with the code of `gt project feature create` and a task per child
+  with the code of `feature task`. The item description becomes the epic
+  description. The feature record and each task entry get a `tracker_ref`
+  (`kind`, `id`, `url`, plus `import_state` and `synced`, see below).
+- `gt project tracker sync <project> [--dry-run]` runs the reconciler.
+
+**Children and rigs.** With one rig every child goes there. With several, a
+child needs the tag (Azure) or label (GitHub) `rig:<name>`; a child without one
+is listed as unassigned and not created, and the command says so. Children
+already in the done state are skipped. An item with no children creates the
+feature and no tasks, and says so. GitHub children are the issue's sub-issues
+(the `subIssues` JSON field of `gh issue view`; only their numbers are used,
+each is then viewed for title, body, state and labels). If an issue has no
+sub-issues, task-list lines in its body (`- [ ] #12`) are used.
+
+**Idempotent.** An item already imported prints the existing feature and creates
+nothing. Importing it again adds children that are new (matched by their
+`tracker_ref`) while the feature is open, and never changes or deletes an
+existing task.
+
+**Write back is a reconciler**, not a hook in spawn or land. For each feature
+with a `tracker_ref` the desired state is `done` when the feature is `landed`,
+`active` when a landing started or any task is in progress, hooked, merging or
+done, and none otherwise. The daemon runs `gt project tracker sync <project>`
+beside the landing tick (`internal/daemon/project_feature.go`), at most every 5
+minutes per project and only for projects with an imported feature that still
+has something to write. It has its own guard and goroutine, so it never blocks
+landing or polecats; a failure logs one line and is retried at the next tick.
+
+**Safety rules**, because this writes to a real tracker:
+
+- gt changes only the state (Azure), or the `gt-active` label and open/closed
+  (GitHub). Only the imported item, and a tracked child only after its own task
+  bead is closed (and not merging), then to the done state. No comments, no
+  field edits, no creating or deleting items. The tracker layer refuses to set
+  any state other than the configured active and done states.
+- Forward only. The current state is read first. gt writes only when the item
+  is at the state it had at import (`import_state`) or at the active state. An
+  item already at done, or moved by a human to any other state, is left alone
+  with one log line. Nothing is ever moved back.
+- The last handled desired state is stored as `synced` on the ref, including
+  "left alone". A tick whose desired state is not ahead of `synced` makes no
+  tracker call at all; otherwise it makes one read and at most one write per
+  item.
 
 ## herdr layout
 
@@ -719,5 +789,5 @@ a project (many repos) polecats are tabs, not nested worktree workspaces.
 | 4 | Multi-repo features: feature records, same-name branches, ordered dispatch, linked PRs and landing (direct and PR), GitHub and Azure DevOps PR providers | done |
 | 5 | Review gate: `gt review`, daemon watcher, feature land gate, refinery approval gate | done (tested against real lavish-axi through its API; the page panel is not yet tried in a real browser) |
 | 6 | Runtime routing by quota: `runtime_routing` policy, `gt project route`, decision at the polecat spawn path | done (tested against fixtures and the real quota-axi reader; not run with a live spawn) |
-| 7 | Planning sync with Azure Boards / GitHub | planned |
+| 7 | Planning sync with Azure Boards / GitHub: `tracker` config, `gt project tracker list/import/sync`, forward-only reconciler in the daemon | done (tested with fake `az` and `gh` runners; no live tracker call made) |
 | 8 | AXI-style output for `gt`: `--axi` / `GT_OUTPUT=axi`, town `agent_output`, six read commands | done (tested on exact text and against the `~/work/demo/gt` town; not run in a live agent session) |
